@@ -8,7 +8,7 @@ export default function AdminAssignmentsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/tasks/analytics/admin-lister'),
+      api.get('/assignments/analytics/admin-lister'),
       api.get('/users/listers')
     ]).then(([r, l]) => {
       setRows(r.data);

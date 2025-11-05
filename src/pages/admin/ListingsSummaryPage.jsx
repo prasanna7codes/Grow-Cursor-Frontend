@@ -59,7 +59,7 @@ export default function ListingsSummaryPage() {
       if (platformId) params.platformId = platformId;
       if (storeId) params.storeId = storeId;
       
-      const res = await api.get('/tasks/analytics/listings-summary', { params });
+      const res = await api.get('/assignments/analytics/listings-summary', { params });
       let filteredData = res.data || [];
 
       // Client-side date filtering since server endpoint doesn't support it
@@ -157,7 +157,7 @@ export default function ListingsSummaryPage() {
               {processedRows.map((r, idx) => (
                 <TableRow key={idx}>
                   <TableCell>
-                    {r.date ? format(parseISO(r.date), 'dd/MM/yyyy') : '\u2014'}
+                    {r.date ?? '\u2014'}
                   </TableCell>
                   <TableCell>{r.platform || '\u2014'}</TableCell>
                   <TableCell>{r.store || '\u2014'}</TableCell>

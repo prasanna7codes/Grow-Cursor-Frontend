@@ -39,6 +39,9 @@ import ListingsSummaryPage from '../pages/admin/ListingsSummaryPage.jsx';
 import UserCredentialsPage from '../pages/admin/UserCredentialsPage.jsx';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 
+import TaskListPage from '../pages/admin/TaskListPage.jsx';
+
+
 const drawerWidth = 260;
 
 export default function AdminLayout({ user, onLogout }) {
@@ -63,6 +66,17 @@ export default function AdminLayout({ user, onLogout }) {
             </ListItemButton>
           </ListItem>
         ) : null}
+
+        {isProductAdmin || isSuper ? (
+          <ListItem disablePadding>
+          <ListItemButton component={Link} to="/admin/task-list" onClick={() => setMobileOpen(false)}>
+            <ListItemIcon><Inventory2Icon /></ListItemIcon>
+  <ListItemText primary="Task List" />
+  </ListItemButton>
+          </ListItem>
+        ) : null}
+
+        
         {isListingAdmin || isSuper ? (
           <>
             <ListItem disablePadding>
@@ -75,7 +89,7 @@ export default function AdminLayout({ user, onLogout }) {
             <Collapse in={listingMenuOpen} timeout="auto" unmountOnExit>
               <List component="div" disablePadding sx={{ pl: 4 }}>
                 <ListItemButton component={Link} to="/admin/listing" onClick={() => setMobileOpen(false)}>
-                  <ListItemText primary="View Table" />
+                  <ListItemText primary="Product Table" />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/admin/assignments" onClick={() => setMobileOpen(false)}>
                   <ListItemText primary="Assignments" />
@@ -184,6 +198,7 @@ export default function AdminLayout({ user, onLogout }) {
             <>
               <Route path="/listing" element={<ListingManagementPage />} />
               <Route path="/assignments" element={<AdminAssignmentsPage />} />
+              <Route path="/task-list" element={<TaskListPage />} />
             </>
           ) : null}
           {isSuper || isListingAdmin ? (
