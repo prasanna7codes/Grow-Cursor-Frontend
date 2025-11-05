@@ -40,9 +40,11 @@ import UserCredentialsPage from '../pages/admin/UserCredentialsPage.jsx';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 
 import TaskListPage from '../pages/admin/TaskListPage.jsx';
+import StockLedgerPage from '../pages/admin/StockLedgerPage.jsx';
 
 
-const drawerWidth = 260;
+
+const drawerWidth = 200;
 
 export default function AdminLayout({ user, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -67,14 +69,24 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         ) : null}
 
-        {isProductAdmin || isSuper ? (
-          <ListItem disablePadding>
-          <ListItemButton component={Link} to="/admin/task-list" onClick={() => setMobileOpen(false)}>
-            <ListItemIcon><Inventory2Icon /></ListItemIcon>
-  <ListItemText primary="Task List" />
-  </ListItemButton>
-          </ListItem>
-        ) : null}
+        {isListingAdmin || isSuper ? (
+  <>
+    <ListItem disablePadding>
+      <ListItemButton component={Link} to="/admin/task-list" onClick={() => setMobileOpen(false)}>
+        <ListItemIcon><Inventory2Icon /></ListItemIcon>
+        <ListItemText primary="Task List" />
+      </ListItemButton>
+    </ListItem>
+
+    <ListItem disablePadding>
+      <ListItemButton component={Link} to="/admin/stock-ledger" onClick={() => setMobileOpen(false)}>
+        <ListItemIcon><Inventory2Icon /></ListItemIcon>
+        <ListItemText primary="Stock Ledger" />
+      </ListItemButton>
+    </ListItem>
+  </>
+) : null}
+
 
         
         {isListingAdmin || isSuper ? (
@@ -126,7 +138,7 @@ export default function AdminLayout({ user, onLogout }) {
             </ListItemButton>
           </ListItem>
         ) : null}
-        {isSuper || isListingAdmin ? (
+        {isSuper  ? (
           <>
             <ListItem disablePadding>
               <ListItemButton component={Link} to="/admin/platforms" onClick={() => setMobileOpen(false)}>
@@ -199,6 +211,8 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/listing" element={<ListingManagementPage />} />
               <Route path="/assignments" element={<AdminAssignmentsPage />} />
               <Route path="/task-list" element={<TaskListPage />} />
+              <Route path="/stock-ledger" element={<StockLedgerPage />} />
+
             </>
           ) : null}
           {isSuper || isListingAdmin ? (

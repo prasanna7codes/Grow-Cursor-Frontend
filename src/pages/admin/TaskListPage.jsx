@@ -34,7 +34,6 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import ClearAllIcon from '@mui/icons-material/ClearAll';
 import api from '../../lib/api.js';
 
-
 const ITEM_HEIGHT = 44;
 const ITEM_PADDING_TOP = 8;
 const MenuProps = {
@@ -62,43 +61,36 @@ const unique = (arr) => Array.from(new Set(arr.filter(Boolean)));
 
 export default function TaskListPage() {
   const [items, setItems] = useState([]);
-  const [openFilters, setOpenFilters] = useState(true); // toggle the collapse
+  const [openFilters, setOpenFilters] = useState(false); // start collapsed for a cleaner look
 
-  // ====== FILTER STATE ======
+  // ====== FILTER STATE (trimmed to only requested ones) ======
   const [filters, setFilters] = useState({
     date: { mode: 'none', single: '', from: '', to: '' }, // 'none' | 'single' | 'range'
     productTitle: { contains: '' },
-    supplierLink: { contains: '' },
-    sourcePrice: { min: '', max: '' },
-    sellingPrice: { min: '', max: '' },
-    sourcePlatform: { in: [] },   // .name
+    sourcePlatform: { in: [] },   // task.sourcePlatform.name
     range: { in: [] },
     category: { in: [] },
     createdByTask: { in: [] },    // task.createdBy.username
-    listingPlatform: { in: [] },  // .name
-    store: { in: [] },            // .name
-    quantity: { min: '', max: '' },
-    lister: { in: [] },           // row.lister.username
-    sharedBy: { in: [] },         // row.createdBy.username  (assigner)
+    listingPlatform: { in: [] },  // listingPlatform.name
+    store: { in: [] },            // store.name
+    lister: { in: [] },           // lister.username
+    sharedBy: { in: [] },         // createdBy.username (assigner)
   });
 
   // ====== FIELD ACCESSORS (align with your render) ======
   const A = {
     date: (r) => r.createdAt,
     productTitle: (r) => r.task?.productTitle,
-    supplierLink: (r) => r.task?.supplierLink,
-    sourcePrice: (r) => Number(r.task?.sourcePrice),
-    sellingPrice: (r) => Number(r.task?.sellingPrice),
     sourcePlatform: (r) => r.task?.sourcePlatform?.name,
     range: (r) => r.task?.range,
     category: (r) => r.task?.category,
-    createdByTask: (r) => r.task?.createdBy?.username, // shown in "Created By" column
+    createdByTask: (r) => r.task?.createdBy?.username,
     listingPlatform: (r) => r.listingPlatform?.name,
     store: (r) => r.store?.name,
     quantity: (r) => Number(r.quantity),
     lister: (r) => r.lister?.username,
-    sharedBy: (r) => r.createdBy?.username, // shown in "Shared By" column
-    completedQuantity: (r) => Number(r.completedQuantity || 0), // present in /assignments API
+    sharedBy: (r) => r.createdBy?.username,
+    completedQuantity: (r) => Number(r.completedQuantity || 0),
   };
 
   // Quick helpers for pending & progress (per assignment row)
@@ -114,19 +106,11 @@ export default function TaskListPage() {
     return Math.round((c / q) * 100);
   };
 
-  // ====== PREDICATES ======
+  // ====== PREDICATES (trimmed) ======
   const matchesText = (val, contains) =>
     !contains || String(val ?? '').toLowerCase().includes(String(contains).toLowerCase());
 
   const matchesEnum = (val, arr) => !arr?.length || arr.includes(val);
-
-  const matchesNum = (val, min, max) => {
-    if (min === '' && max === '') return true;
-    if (Number.isNaN(val)) return false;
-    const okMin = min === '' || val >= Number(min);
-    const okMax = max === '' || val <= Number(max);
-    return okMin && okMax;
-  };
 
   const matchesDate = (createdAt, dateFilter) => {
     const ymd = toISTYMD(createdAt);
@@ -147,7 +131,7 @@ export default function TaskListPage() {
       .then(({ data }) => {
         const list = Array.isArray(data) ? data : (data.items || data.assignments || []);
         setItems(list);
-})
+      })
       .catch(() => alert('Failed to fetch tasks.'));
   }, []);
 
@@ -166,21 +150,17 @@ export default function TaskListPage() {
     [items]
   );
 
-  // ====== FILTERED LIST ======
+  // ====== FILTERED LIST (only trimmed filters applied) ======
   const filteredItems = useMemo(() => {
     return items.filter((r) =>
       matchesDate(A.date(r), filters.date) &&
       matchesText(A.productTitle(r), filters.productTitle.contains) &&
-      matchesText(A.supplierLink(r), filters.supplierLink.contains) &&
-      matchesNum(A.sourcePrice(r), filters.sourcePrice.min, filters.sourcePrice.max) &&
-      matchesNum(A.sellingPrice(r), filters.sellingPrice.min, filters.sellingPrice.max) &&
       matchesEnum(A.sourcePlatform(r), filters.sourcePlatform.in) &&
       matchesEnum(A.range(r), filters.range.in) &&
       matchesEnum(A.category(r), filters.category.in) &&
       matchesEnum(A.createdByTask(r), filters.createdByTask.in) &&
       matchesEnum(A.listingPlatform(r), filters.listingPlatform.in) &&
       matchesEnum(A.store(r), filters.store.in) &&
-      matchesNum(A.quantity(r), filters.quantity.min, filters.quantity.max) &&
       matchesEnum(A.lister(r), filters.lister.in) &&
       matchesEnum(A.sharedBy(r), filters.sharedBy.in)
     );
@@ -192,9 +172,6 @@ export default function TaskListPage() {
     if (filters.date.mode === 'single' && filters.date.single) n++;
     if (filters.date.mode === 'range' && (filters.date.from || filters.date.to)) n++;
     if (filters.productTitle.contains) n++;
-    if (filters.supplierLink.contains) n++;
-    [['sourcePrice','min'],['sourcePrice','max'],['sellingPrice','min'],['sellingPrice','max'],['quantity','min'],['quantity','max']]
-      .forEach(([k, p]) => { if (filters[k][p] !== '') n++; });
     ['sourcePlatform','range','category','createdByTask','listingPlatform','store','lister','sharedBy']
       .forEach(k => { if (filters[k].in.length) n++; });
     return n;
@@ -212,16 +189,12 @@ export default function TaskListPage() {
     setFilters({
       date: { mode: 'none', single: '', from: '', to: '' },
       productTitle: { contains: '' },
-      supplierLink: { contains: '' },
-      sourcePrice: { min: '', max: '' },
-      sellingPrice: { min: '', max: '' },
       sourcePlatform: { in: [] },
       range: { in: [] },
       category: { in: [] },
       createdByTask: { in: [] },
       listingPlatform: { in: [] },
       store: { in: [] },
-      quantity: { min: '', max: '' },
       lister: { in: [] },
       sharedBy: { in: [] },
     });
@@ -229,8 +202,8 @@ export default function TaskListPage() {
   // ====== RENDER ======
   return (
     <Box>
-      {/* FILTER TOOLBAR */}
-      <Paper sx={{ p: 1.5, mb: 1.5 }}>
+      {/* FILTER TOOLBAR (compact, starts collapsed) */}
+      <Paper sx={{ p: 1, mb: 1 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
           <Stack direction="row" alignItems="center" gap={1}>
             <Badge color={activeCount ? 'primary' : 'default'} badgeContent={activeCount} overlap="circular">
@@ -243,13 +216,13 @@ export default function TaskListPage() {
                   transition: 'transform .2s',
                 }}
               >
-                <ExpandMoreIcon />
+                <ExpandMoreIcon fontSize="small" />
               </IconButton>
             </Badge>
-            <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <FilterListIcon fontSize="small" /> Filters
             </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               Showing <b>{filteredItems.length}</b> of {items.length}
             </Typography>
           </Stack>
@@ -264,7 +237,7 @@ export default function TaskListPage() {
                   onClick={clearAll}
                   disabled={activeCount === 0}
                 >
-                  Clear all
+                  Clear
                 </Button>
               </span>
             </Tooltip>
@@ -273,10 +246,10 @@ export default function TaskListPage() {
 
         <Collapse in={openFilters} timeout="auto" unmountOnExit>
           <Divider sx={{ my: 1 }} />
-          {/* FILTER GRID (compact) */}
-          <Grid container spacing={1.5} alignItems="center">
+          {/* FILTER GRID (only requested filters) */}
+          <Grid container spacing={1} alignItems="center">
             {/* Date mode & pickers */}
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel id="date-mode-label">Date mode</InputLabel>
                 <Select
@@ -295,7 +268,7 @@ export default function TaskListPage() {
             </Grid>
 
             {filters.date.mode === 'single' && (
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   size="small"
                   type="date"
@@ -312,7 +285,7 @@ export default function TaskListPage() {
 
             {filters.date.mode === 'range' && (
               <>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={12} sm={6} md={3}>
                   <TextField
                     size="small"
                     type="date"
@@ -325,7 +298,7 @@ export default function TaskListPage() {
                     }
                   />
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={12} sm={6} md={3}>
                   <TextField
                     size="small"
                     type="date"
@@ -341,8 +314,8 @@ export default function TaskListPage() {
               </>
             )}
 
-            {/* Text contains */}
-            <Grid item xs={12} md={3}>
+            {/* Product Title contains */}
+            <Grid item xs={12} sm={6} md={3}>
               <TextField
                 size="small"
                 label="Title contains"
@@ -353,51 +326,8 @@ export default function TaskListPage() {
                 }
               />
             </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                size="small"
-                label="Supplier link contains"
-                fullWidth
-                value={filters.supplierLink.contains}
-                onChange={(e) =>
-                  setFilters((f) => ({ ...f, supplierLink: { contains: e.target.value } }))
-                }
-              />
-            </Grid>
 
-            {/* Number ranges (compact side-by-side) */}
-            {[
-              ['sourcePrice', 'Source Price'],
-              ['sellingPrice', 'Selling Price'],
-              ['quantity', 'Quantity'],
-            ].map(([k, label]) => (
-              <Grid item xs={12} md={3} key={k}>
-                <Stack direction="row" gap={1}>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label={`${label} min`}
-                    fullWidth
-                    value={filters[k].min}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, [k]: { ...f[k], min: e.target.value } }))
-                    }
-                  />
-                  <TextField
-                    size="small"
-                    type="number"
-                    label={`${label} max`}
-                    fullWidth
-                    value={filters[k].max}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, [k]: { ...f[k], max: e.target.value } }))
-                    }
-                  />
-                </Stack>
-              </Grid>
-            ))}
-
-            {/* Multi-select enums/relations */}
+            {/* Multi-select enums/relations (only the ones you want) */}
             {[
               ['sourcePlatform', 'Source Platform'],
               ['range', 'Range'],
@@ -408,7 +338,7 @@ export default function TaskListPage() {
               ['lister', 'Lister'],
               ['sharedBy', 'Shared By'],
             ].map(([key, label]) => (
-              <Grid item xs={12} md={3} key={key}>
+              <Grid item xs={12} sm={6} md={3} key={key}>
                 <FormControl fullWidth size="small">
                   <InputLabel id={`${key}-label`}>{label}</InputLabel>
                   <Select
@@ -440,49 +370,9 @@ export default function TaskListPage() {
         </Collapse>
       </Paper>
 
-      {/* When collapsed, show quick summary chips (first 4) */}
-      {!openFilters && activeCount > 0 && (
-        <Box sx={{ mb: 1 }}>
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            {(() => {
-              const chips = [];
-
-              if (filters.date.mode === 'single' && filters.date.single) {
-                chips.push(`Date: ${filters.date.single}`);
-              } else if (filters.date.mode === 'range' && (filters.date.from || filters.date.to)) {
-                chips.push(`Date: ${filters.date.from || '…'} → ${filters.date.to || '…'}`);
-              }
-              if (filters.productTitle.contains) chips.push(`Title ~ ${filters.productTitle.contains}`);
-              if (filters.supplierLink.contains) chips.push(`Link ~ ${filters.supplierLink.contains}`);
-
-              [['sourcePrice','Source'], ['sellingPrice','Selling'], ['quantity','Qty']].forEach(([k, label]) => {
-                const { min, max } = filters[k];
-                if (min !== '' || max !== '') chips.push(`${label}: ${min || '…'}–${max || '…'}`);
-              });
-
-              [
-                ['sourcePlatform','SrcPlat'],
-                ['range','Range'],
-                ['category','Cat'],
-                ['createdByTask','CreatedBy'],
-                ['listingPlatform','ListPlat'],
-                ['store','Store'],
-                ['lister','Lister'],
-                ['sharedBy','SharedBy'],
-              ].forEach(([k, label]) => {
-                if (filters[k].in.length) chips.push(`${label}: ${filters[k].in.join(', ')}`);
-              });
-
-              return chips.slice(0, 4).map((txt, i) => <Chip key={i} label={txt} size="small" />);
-            })()}
-            {activeCount > 4 && <Chip size="small" label={`+${activeCount - 4} more`} />}
-          </Stack>
-        </Box>
-      )}
-
-      {/* TABLE */}
+      {/* TABLE (all columns retained; a little compact styling) */}
       <TableContainer component={Paper}>
-        <Table size="small">
+        <Table size="small" sx={{ '& td, & th': { whiteSpace: 'nowrap' } }}>
           <TableHead>
             <TableRow>
               <TableCell>SL No</TableCell>
@@ -498,7 +388,7 @@ export default function TaskListPage() {
               <TableCell>Listing Platform</TableCell>
               <TableCell>Store</TableCell>
               <TableCell>Quantity</TableCell>
-              <TableCell>Quantity Pending</TableCell> {/* NEW */}
+              <TableCell>Quantity Pending</TableCell>
               <TableCell>Lister</TableCell>
               <TableCell>Shared By</TableCell>
             </TableRow>
@@ -511,11 +401,13 @@ export default function TaskListPage() {
               const p = pendingQty(it);
               const pct = progressPct(it);
               return (
-                <TableRow key={it._id || idx}>
+                <TableRow key={it._id || idx} sx={{ '&:nth-of-type(odd)': { backgroundColor: 'action.hover' } }}>
                   <TableCell>{idx + 1}</TableCell>
                   <TableCell>{toISTYMD(it.createdAt)}</TableCell>
-                  <TableCell>{t.productTitle || '-'}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {t.productTitle || '-'}
+                  </TableCell>
+                  <TableCell sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {t.supplierLink ? (
                       <a href={t.supplierLink} target="_blank" rel="noreferrer">Link</a>
                     ) : '-'}
@@ -530,8 +422,7 @@ export default function TaskListPage() {
                   <TableCell>{it.store?.name || '-'}</TableCell>
                   <TableCell>{q ?? '-'}</TableCell>
                   <TableCell>
-                    {/* Pending text + tiny progress */}
-                    <Stack spacing={0.5}>
+                    <Stack spacing={0.5} sx={{ minWidth: 160 }}>
                       <Typography variant="body2">{p} pending</Typography>
                       <LinearProgress variant="determinate" value={pct} sx={{ height: 6, borderRadius: 3 }} />
                       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
