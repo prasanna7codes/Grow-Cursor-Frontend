@@ -25,6 +25,8 @@ function useAuth() {
     setAuthToken(t);
     localStorage.setItem('user', JSON.stringify(u));
     if (u.role === 'lister') navigate('/lister');
+    else if (u.role === 'compatibilityadmin') navigate('/admin/compatibility-tasks');
+    else if (u.role === 'compatibilityeditor') navigate('/admin/compatibility-editor');
     else navigate('/admin');
   };
   const logout = () => {
@@ -51,7 +53,13 @@ export default function App() {
         <Route
           path="/admin/*"
           element={
-            token && user && (user.role === 'productadmin' || user.role === 'listingadmin' || user.role === 'superadmin') ? (
+            token && user && (
+              user.role === 'productadmin' ||
+              user.role === 'listingadmin' ||
+              user.role === 'superadmin' ||
+              user.role === 'compatibilityadmin' ||
+              user.role === 'compatibilityeditor'
+            ) ? (
               <AdminLayout user={user} onLogout={logout} />
             ) : (
               <Navigate to="/login" replace />

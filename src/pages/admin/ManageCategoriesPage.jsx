@@ -10,16 +10,19 @@ export default function ManageCategoriesPage() {
   // Categories
   const [categories, setCategories] = useState([]);
   const [categoryName, setCategoryName] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
   
   // Subcategories
   const [subcategories, setSubcategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [subcategoryName, setSubcategoryName] = useState('');
+  const [subcategorySearch, setSubcategorySearch] = useState('');
   
   // Ranges
   const [ranges, setRanges] = useState([]);
   const [selectedCategoryForRange, setSelectedCategoryForRange] = useState('');
   const [rangeName, setRangeName] = useState('');
+  const [rangeSearch, setRangeSearch] = useState('');
 
   // Load categories
   useEffect(() => {
@@ -89,6 +92,15 @@ export default function ManageCategoriesPage() {
           />
           <Button type="submit" variant="contained">Add Category</Button>
         </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
+          <TextField
+            label="Search Category"
+            value={categorySearch}
+            onChange={e => setCategorySearch(e.target.value)}
+            sx={{ flex: 1 }}
+          />
+          <Button variant="outlined" onClick={() => setCategorySearch(categorySearch)}>Search</Button>
+        </Stack>
         <TableContainer sx={{ mt: 2 }}>
           <Table size="small">
             <TableHead>
@@ -97,8 +109,8 @@ export default function ManageCategoriesPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {categories.map((c) => (
-                <TableRow key={c._id}>
+              {categories.filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase())).map((c) => (
+                <TableRow key={c._id} sx={categorySearch && c.name.toLowerCase() === categorySearch.toLowerCase() ? { backgroundColor: 'action.selected' } : {}}>
                   <TableCell>{c.name}</TableCell>
                 </TableRow>
               ))}
@@ -137,6 +149,15 @@ export default function ManageCategoriesPage() {
             Add Subcategory
           </Button>
         </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
+          <TextField
+            label="Search Subcategory"
+            value={subcategorySearch}
+            onChange={e => setSubcategorySearch(e.target.value)}
+            sx={{ flex: 1 }}
+          />
+          <Button variant="outlined" onClick={() => setSubcategorySearch(subcategorySearch)}>Search</Button>
+        </Stack>
         <TableContainer sx={{ mt: 2 }}>
           <Table size="small">
             <TableHead>
@@ -146,8 +167,8 @@ export default function ManageCategoriesPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {subcategories.map((s) => (
-                <TableRow key={s._id}>
+              {subcategories.filter(s => !subcategorySearch || s.name.toLowerCase().includes(subcategorySearch.toLowerCase())).map((s) => (
+                <TableRow key={s._id} sx={subcategorySearch && s.name.toLowerCase() === subcategorySearch.toLowerCase() ? { backgroundColor: 'action.selected' } : {}}>
                   <TableCell>{s.name}</TableCell>
                   <TableCell>{s.category?.name}</TableCell>
                 </TableRow>
@@ -187,6 +208,15 @@ export default function ManageCategoriesPage() {
             Add Range
           </Button>
         </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
+          <TextField
+            label="Search Range"
+            value={rangeSearch}
+            onChange={e => setRangeSearch(e.target.value)}
+            sx={{ flex: 1 }}
+          />
+          <Button variant="outlined" onClick={() => setRangeSearch(rangeSearch)}>Search</Button>
+        </Stack>
         <TableContainer sx={{ mt: 2 }}>
           <Table size="small">
             <TableHead>
@@ -196,8 +226,8 @@ export default function ManageCategoriesPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {ranges.map((r) => (
-                <TableRow key={r._id}>
+              {ranges.filter(r => !rangeSearch || r.name.toLowerCase().includes(rangeSearch.toLowerCase())).map((r) => (
+                <TableRow key={r._id} sx={rangeSearch && r.name.toLowerCase() === rangeSearch.toLowerCase() ? { backgroundColor: 'action.selected' } : {}}>
                   <TableCell>{r.name}</TableCell>
                   <TableCell>{r.category?.name}</TableCell>
                 </TableRow>

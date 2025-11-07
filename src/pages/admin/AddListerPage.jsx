@@ -24,6 +24,7 @@ export default function AddListerPage() {
   }, []);
   const isSuper = currentUser?.role === 'superadmin';
   const isListingAdmin = currentUser?.role === 'listingadmin';
+  const isCompatibilityAdmin = currentUser?.role === 'compatibilityadmin';
 
   const clearFieldError = (field) =>
     setErrors(prev => ({ ...prev, [field]: '' }));
@@ -35,12 +36,18 @@ export default function AddListerPage() {
     setSubmitting(true);
 
     try {
-      const newRole = isSuper ? role : 'lister';
+      const newRole = isSuper ? role : isCompatibilityAdmin ? 'compatibilityeditor' : 'lister';
       const res = await api.post('/users', {
         email, username, password, newUserRole: newRole
       });
 
-      const roleNames = { productadmin: 'Product Admin', listingadmin: 'Listing Admin', lister: 'Lister' };
+      const roleNames = { 
+        productadmin: 'Product Admin', 
+        listingadmin: 'Listing Admin', 
+        compatibilityadmin: 'Compatibility Admin', 
+        compatibilityeditor: 'Compatibility Editor', 
+        lister: 'Lister' 
+      };
       setMsg(`${roleNames[newRole]} created`);
 
       // store credentials for superadmin convenience
@@ -116,11 +123,15 @@ export default function AddListerPage() {
             <Select label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
               <MenuItem value="productadmin">Product Research Admin</MenuItem>
               <MenuItem value="listingadmin">Listing Admin</MenuItem>
+              <MenuItem value="compatibilityadmin">Compatibility Admin</MenuItem>
+              <MenuItem value="compatibilityeditor">Compatibility Editor</MenuItem>
               <MenuItem value="lister">Lister</MenuItem>
             </Select>
           </FormControl>
         ) : isListingAdmin ? (
           <Typography variant="body2" color="text.secondary">Creating Lister</Typography>
+        ) : isCompatibilityAdmin ? (
+          <Typography variant="body2" color="text.secondary">Creating Compatibility Editor</Typography>
         ) : null}
         <Box>
           <Button type="submit" variant="contained" disabled={submitting}>Create</Button>

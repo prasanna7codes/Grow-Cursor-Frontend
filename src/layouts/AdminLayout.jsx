@@ -42,6 +42,9 @@ import TaskIcon from '@mui/icons-material/Task';
 
 import TaskListPage from '../pages/admin/TaskListPage.jsx';
 import StockLedgerPage from '../pages/admin/StockLedgerPage.jsx';
+import AdminTaskList from '../pages/compatibility/AdminTaskList.jsx';
+import EditorDashboard from '../pages/compatibility/EditorDashboard.jsx';
+import ProgressTrackingPage from '../pages/compatibility/ProgressTrackingPage.jsx';
 
 
 
@@ -55,6 +58,8 @@ export default function AdminLayout({ user, onLogout }) {
   const isSuper = user?.role === 'superadmin';
   const isProductAdmin = user?.role === 'productadmin';
   const isListingAdmin = user?.role === 'listingadmin';
+  const isCompatibilityAdmin = user?.role === 'compatibilityadmin';
+  const isCompatibilityEditor = user?.role === 'compatibilityeditor';
 
   const drawer = (
     <div>
@@ -137,6 +142,37 @@ export default function AdminLayout({ user, onLogout }) {
             </ListItemButton>
           </ListItem>
         ) : null}
+        {(isSuper || isCompatibilityAdmin) && (
+          <>
+            <ListItem disablePadding>
+              <ListItemButton component={Link} to="/admin/add-compatibility-editor" onClick={() => setMobileOpen(false)}>
+                <ListItemIcon><AddCircleIcon /></ListItemIcon>
+                <ListItemText primary="Add Compatibility Editor" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton component={Link} to="/admin/compatibility-tasks" onClick={() => setMobileOpen(false)}>
+                <ListItemIcon><TaskIcon /></ListItemIcon>
+                <ListItemText primary="Available Tasks" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton component={Link} to="/admin/compatibility-progress" onClick={() => setMobileOpen(false)}>
+                <ListItemIcon><InsightsIcon /></ListItemIcon>
+                <ListItemText primary="Progress Tracking" />
+              </ListItemButton>
+            </ListItem>
+          </>
+        )}
+        {(isCompatibilityEditor) && (
+          <ListItem disablePadding>
+            <ListItemButton component={Link} to="/admin/compatibility-editor" onClick={() => setMobileOpen(false)}>
+              <ListItemIcon><TaskIcon /></ListItemIcon>
+              <ListItemText primary="My Assignments" />
+            </ListItemButton>
+          </ListItem>
+        )}
+
         {isSuper  ? (
           <>
             <ListItem disablePadding>
@@ -227,7 +263,24 @@ export default function AdminLayout({ user, onLogout }) {
           {isSuper && (
             <Route path="/user-credentials" element={<UserCredentialsPage />} />
           )}
-          <Route path="*" element={<Navigate to={isProductAdmin ? "/admin/research" : isListingAdmin ? "/admin/listing" : "/admin/research"} replace />} />
+          {isCompatibilityAdmin && (
+            <>
+              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
+              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
+              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
+            </>
+          )}
+          {(isSuper || isCompatibilityAdmin) && (
+            <>
+              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
+              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
+              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
+            </>
+          )}
+          {isCompatibilityEditor && (
+            <Route path="/compatibility-editor" element={<EditorDashboard />} />
+          )}
+          <Route path="*" element={<Navigate to={isProductAdmin ? "/admin/research" : isListingAdmin ? "/admin/listing" : isCompatibilityAdmin ? "/admin/compatibility-tasks" : isCompatibilityEditor ? "/admin/compatibility-editor" : "/admin/research"} replace />} />
         </Routes>
       </Box>
     </Box>

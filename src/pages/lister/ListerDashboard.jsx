@@ -110,7 +110,7 @@ export default function ListerDashboard({ user, onLogout }) {
     return (
       <Card key={a._id} sx={{ mb: 2 }}>
         <CardContent>
-          <Typography variant="subtitle1" sx={{ mb: 1 }}>{t.productTitle}</Typography>
+          
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {new Date(a.createdAt).toLocaleDateString()}
           </Typography>

@@ -383,10 +383,9 @@ export default function TaskListPage() {
             <TableRow>
               <TableCell>SL No</TableCell>
               <TableCell>Date</TableCell>
-              <TableCell>Product Title</TableCell>
+              
               <TableCell>Supplier Link</TableCell>
-              <TableCell>Source Price</TableCell>
-              <TableCell>Selling Price</TableCell>
+              
               <TableCell>Source Platform</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Subcategory</TableCell>
@@ -397,7 +396,7 @@ export default function TaskListPage() {
               <TableCell>Distributed Qty</TableCell>
               <TableCell>Quantity Pending</TableCell>
               <TableCell>Lister</TableCell>
-              <TableCell>Shared By</TableCell>
+              <TableCell>Assigned By</TableCell>
             </TableRow>
           </TableHead>
 
@@ -416,16 +415,13 @@ export default function TaskListPage() {
                   <TableRow key={it._id || idx} sx={{ '&:nth-of-type(odd)': { backgroundColor: 'action.hover' } }}>
                     <TableCell>{idx + 1}</TableCell>
                     <TableCell>{toISTYMD(it.createdAt)}</TableCell>
-                    <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {t.productTitle || '-'}
-                    </TableCell>
+                    
                     <TableCell sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {t.supplierLink ? (
                         <a href={t.supplierLink} target="_blank" rel="noreferrer">Link</a>
                       ) : '-'}
                     </TableCell>
-                    <TableCell>{t.sourcePrice ?? '-'}</TableCell>
-                    <TableCell>{t.sellingPrice ?? '-'}</TableCell>
+                    
                     <TableCell>{t.sourcePlatform?.name || '-'}</TableCell>
                     <TableCell>{t.category?.name || '-'}</TableCell>
                     <TableCell>{t.subcategory?.name || '-'}</TableCell>

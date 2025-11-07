@@ -82,10 +82,9 @@ export default function ListingManagementPage() {
             <TableRow>
               <TableCell>SL No</TableCell>
               <TableCell>Date</TableCell>
-              <TableCell>Product Title</TableCell>
+              
               <TableCell>Supplier Link</TableCell>
-              <TableCell>Source Price</TableCell>
-              <TableCell>Selling Price</TableCell>
+              
               <TableCell>Source Platform</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Subcategory</TableCell>
@@ -98,10 +97,9 @@ export default function ListingManagementPage() {
               <TableRow key={r._id}>
                 <TableCell>{idx + 1}</TableCell>
                 <TableCell>{new Date(r.date).toLocaleDateString()}</TableCell>
-                <TableCell>{r.productTitle}</TableCell>
+                
                 <TableCell><a href={r.supplierLink} target="_blank" rel="noreferrer">Link</a></TableCell>
-                <TableCell>{r.sourcePrice}</TableCell>
-                <TableCell>{r.sellingPrice}</TableCell>
+                
                 <TableCell>{r.sourcePlatform?.name || '-'}</TableCell>
                 <TableCell>{r.category?.name || '-'}</TableCell>
                 <TableCell>{r.subcategory?.name || '-'}</TableCell>
