@@ -82,10 +82,9 @@ export default function ListingManagementPage() {
             <TableRow>
               <TableCell>SL No</TableCell>
               <TableCell>Date</TableCell>
-              
               <TableCell>Supplier Link</TableCell>
-              
               <TableCell>Source Platform</TableCell>
+              <TableCell>Marketplace</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Subcategory</TableCell>
               <TableCell>Created By</TableCell>
@@ -101,6 +100,7 @@ export default function ListingManagementPage() {
                 <TableCell><a href={r.supplierLink} target="_blank" rel="noreferrer">Link</a></TableCell>
                 
                 <TableCell>{r.sourcePlatform?.name || '-'}</TableCell>
+                <TableCell>{r.marketplace?.replace('EBAY_', 'eBay ').replace('_', ' ') || '-'}</TableCell>
                 <TableCell>{r.category?.name || '-'}</TableCell>
                 <TableCell>{r.subcategory?.name || '-'}</TableCell>
                 <TableCell>{r.createdBy?.username || '-'}</TableCell>

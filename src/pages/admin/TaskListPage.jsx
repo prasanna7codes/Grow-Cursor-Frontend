@@ -82,6 +82,7 @@ export default function TaskListPage() {
     createdByTask: { in: [] },    // task.createdBy.username
     listingPlatform: { in: [] },  // listingPlatform.name
     store: { in: [] },            // store.name
+    marketplace: { in: [] },      // marketplace enum
     lister: { in: [] },           // lister.username
     sharedBy: { in: [] },         // createdBy.username (assigner)
   });
@@ -100,6 +101,7 @@ export default function TaskListPage() {
     createdByTask: (r) => r.task?.createdBy?.username,
     listingPlatform: (r) => r.listingPlatform?.name,
     store: (r) => r.store?.name,
+    marketplace: (r) => r.marketplace,
     quantity: (r) => Number(r.quantity),
     lister: (r) => r.lister?.username,
     sharedBy: (r) => r.createdBy?.username,
@@ -177,6 +179,7 @@ export default function TaskListPage() {
       createdByTask: unique(items.map(A.createdByTask)),
       listingPlatform: unique(items.map(A.listingPlatform)),
       store: unique(items.map(A.store)),
+      marketplace: unique(items.map(A.marketplace)),
       lister: unique(items.map(A.lister)),
       sharedBy: unique(items.map(A.sharedBy)),
     }),
@@ -194,6 +197,7 @@ export default function TaskListPage() {
       matchesEnum(A.createdByTask(r), filters.createdByTask.in) &&
       matchesEnum(A.listingPlatform(r), filters.listingPlatform.in) &&
       matchesEnum(A.store(r), filters.store.in) &&
+      matchesEnum(A.marketplace(r), filters.marketplace.in) &&
       matchesEnum(A.lister(r), filters.lister.in) &&
       matchesEnum(A.sharedBy(r), filters.sharedBy.in)
     );
@@ -205,7 +209,7 @@ export default function TaskListPage() {
     if (filters.date.mode === 'single' && filters.date.single) n++;
     if (filters.date.mode === 'range' && (filters.date.from || filters.date.to)) n++;
     if (filters.productTitle.contains) n++;
-    ['sourcePlatform','category','subcategory','createdByTask','listingPlatform','store','lister','sharedBy']
+    ['sourcePlatform','category','subcategory','createdByTask','listingPlatform','store','marketplace','lister','sharedBy']
       .forEach(k => { if (filters[k].in.length) n++; });
     return n;
   }, [filters]);
@@ -228,6 +232,7 @@ export default function TaskListPage() {
       createdByTask: { in: [] },
       listingPlatform: { in: [] },
       store: { in: [] },
+      marketplace: { in: [] },
       lister: { in: [] },
       sharedBy: { in: [] },
     });
@@ -368,6 +373,7 @@ export default function TaskListPage() {
               ['createdByTask', 'Created By'],
               ['listingPlatform', 'Listing Platform'],
               ['store', 'Store'],
+              ['marketplace', 'Marketplace'],
               ['lister', 'Lister'],
               ['sharedBy', 'Shared By'],
             ].map(([key, label]) => (
@@ -383,7 +389,7 @@ export default function TaskListPage() {
                     renderValue={(selected) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                         {selected.map((value) => (
-                          <Chip key={value} label={value} size="small" />
+                          <Chip key={value} label={key === 'marketplace' ? value?.replace('EBAY_', 'eBay ')?.replace('_', ' ') : value} size="small" />
                         ))}
                       </Box>
                     )}
@@ -392,7 +398,7 @@ export default function TaskListPage() {
                     {enumOptions[key].map((name) => (
                       <MenuItem key={name} value={name}>
                         <Checkbox size="small" checked={filters[key].in.indexOf(name) > -1} />
-                        <ListItemText primary={name} />
+                        <ListItemText primary={key === 'marketplace' ? name?.replace('EBAY_', 'eBay ')?.replace('_', ' ') : name} />
                       </MenuItem>
                     ))}
                   </Select>
@@ -419,6 +425,7 @@ export default function TaskListPage() {
               <TableCell>Created By</TableCell>
               <TableCell>Listing Platform</TableCell>
               <TableCell>Store</TableCell>
+              <TableCell>Marketplace</TableCell>
               <TableCell>Quantity</TableCell>
               <TableCell>Distributed Qty</TableCell>
               <TableCell>Quantity Pending</TableCell>
@@ -456,6 +463,7 @@ export default function TaskListPage() {
                     <TableCell>{t.createdBy?.username || '-'}</TableCell>
                     <TableCell>{it.listingPlatform?.name || '-'}</TableCell>
                     <TableCell>{it.store?.name || '-'}</TableCell>
+                    <TableCell>{it.marketplace?.replace('EBAY_', 'eBay ')?.replace('_', ' ') || '-'}</TableCell>
                     <TableCell>{q ?? '-'}</TableCell>
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1}>
@@ -487,7 +495,7 @@ export default function TaskListPage() {
                   </TableRow>
                   {rangeQuantities.length > 0 && (
                     <TableRow>
-                      <TableCell colSpan={16} sx={{ py: 0, borderBottom: 0 }}>
+                      <TableCell colSpan={17} sx={{ py: 0, borderBottom: 0 }}>
                         <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                           <Box sx={{ margin: 2 }}>
                             <Typography variant="subtitle2" sx={{ mb: 1 }}>Range Quantity Breakdown:</Typography>

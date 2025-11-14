@@ -118,6 +118,7 @@ export default function AdminTaskList() {
               <TableCell>Subcategory</TableCell>
               <TableCell>Listing Platform</TableCell>
               <TableCell>Store</TableCell>
+              <TableCell>Marketplace</TableCell>
               <TableCell>Range Quantity Breakdown</TableCell>
                   <TableCell>Shared</TableCell>
               <TableCell>Action</TableCell>
@@ -139,6 +140,7 @@ export default function AdminTaskList() {
                 <TableCell>{a.task?.subcategory?.name || '-'}</TableCell>
                 <TableCell>{a.listingPlatform?.name || '-'}</TableCell>
                 <TableCell>{a.store?.name || '-'}</TableCell>
+                <TableCell>{a.marketplace?.replace('EBAY_', 'eBay ').replace('_', ' ') || '-'}</TableCell>
                 <TableCell>
                   <Stack direction="column" spacing={0.5}>
                     {(a.rangeQuantities || []).map((rq, i) => (

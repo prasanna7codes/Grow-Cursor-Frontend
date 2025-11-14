@@ -125,6 +125,9 @@ export default function ListerDashboard({ user, onLogout }) {
           <Typography variant="body2" sx={{ mb: 1 }}>
             Listing: {a.listingPlatform?.name} / {a.store?.name}
           </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Marketplace: {a.marketplace?.replace('EBAY_', 'eBay ').replace('_', ' ') || '-'}
+          </Typography>
           {t.supplierLink ? (
             <Typography variant="body2" sx={{ mb: 2 }}>
               <a href={t.supplierLink} target="_blank" rel="noreferrer">Supplier Link</a>

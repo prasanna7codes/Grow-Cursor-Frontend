@@ -19,6 +19,7 @@ export default function ProgressTrackingPage() {
     subcategory: '',
     listingPlatform: '',
     store: '',
+    marketplace: '',
     editor: '',
     pending: { mode: 'none', value: '' }, // 'none' | 'equal' | 'greater' | 'less'
   });
@@ -83,6 +84,11 @@ export default function ProgressTrackingPage() {
     return Array.from(new Set(list)).sort();
   }, [items]);
 
+  const uniqueMarketplaces = useMemo(() => {
+    const list = items.map(item => item.sourceAssignment?.marketplace).filter(Boolean);
+    return Array.from(new Set(list)).sort();
+  }, [items]);
+
   // Filter logic
   const matchesDate = (createdAt, dateFilter) => {
     const ymd = toISTYMD(createdAt);
@@ -116,6 +122,11 @@ export default function ProgressTrackingPage() {
     return item.sourceAssignment?.store?.name === filters.store;
   };
 
+  const matchesMarketplace = (item) => {
+    if (!filters.marketplace) return true;
+    return item.sourceAssignment?.marketplace === filters.marketplace;
+  };
+
   const matchesPending = (item) => {
     if (filters.pending.mode === 'none' || !filters.pending.value) return true;
     const pending = pendingQty(item);
@@ -133,6 +144,7 @@ export default function ProgressTrackingPage() {
       matchesSubcategory(item) &&
       matchesListingPlatform(item) &&
       matchesStore(item) &&
+      matchesMarketplace(item) &&
       matchesEditor(item) &&
       matchesPending(item)
     );
@@ -146,6 +158,7 @@ export default function ProgressTrackingPage() {
     if (filters.subcategory) count++;
     if (filters.listingPlatform) count++;
     if (filters.store) count++;
+    if (filters.marketplace) count++;
     if (filters.editor) count++;
     if (filters.pending.mode !== 'none' && filters.pending.value) count++;
     return count;
@@ -158,6 +171,7 @@ export default function ProgressTrackingPage() {
       subcategory: '',
       listingPlatform: '',
       store: '',
+      marketplace: '',
       editor: '',
       pending: { mode: 'none', value: '' },
     });
@@ -308,6 +322,23 @@ export default function ProgressTrackingPage() {
               </FormControl>
             </Grid>
 
+            {/* Marketplace Filter */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Marketplace</InputLabel>
+                <Select
+                  label="Marketplace"
+                  value={filters.marketplace}
+                  onChange={(e) => setFilters(f => ({ ...f, marketplace: e.target.value }))}
+                >
+                  <MenuItem value="">All Marketplaces</MenuItem>
+                  {uniqueMarketplaces.map(mp => (
+                    <MenuItem key={mp} value={mp}>{mp.replace('EBAY_', 'eBay ').replace('_', ' ')}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
             {/* Editor Filter */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth size="small">
@@ -369,6 +400,7 @@ export default function ProgressTrackingPage() {
               <TableCell>Subcategory</TableCell>
               <TableCell>Listing Platform</TableCell>
               <TableCell>Store</TableCell>
+              <TableCell>Marketplace</TableCell>
               <TableCell>Editor</TableCell>
               <TableCell>Assigned Ranges</TableCell>
               <TableCell>Completed Ranges</TableCell>
@@ -389,6 +421,7 @@ export default function ProgressTrackingPage() {
                 <TableCell>{item.task?.subcategory?.name || '-'}</TableCell>
                 <TableCell>{item.sourceAssignment?.listingPlatform?.name || '-'}</TableCell>
                 <TableCell>{item.sourceAssignment?.store?.name || '-'}</TableCell>
+                <TableCell>{item.sourceAssignment?.marketplace?.replace('EBAY_', 'eBay ')?.replace('_', ' ') || '-'}</TableCell>
                 <TableCell>{item.editor?.username || '-'}</TableCell>
                 <TableCell>
                   <Stack direction="column" spacing={0.5}>

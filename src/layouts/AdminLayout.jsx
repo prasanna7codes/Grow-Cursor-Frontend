@@ -38,6 +38,7 @@ import ManageRangesPage from '../pages/admin/ManageRangesPage.jsx';
 import ManageCategoriesPage from '../pages/admin/ManageCategoriesPage.jsx';
 import ListingsSummaryPage from '../pages/admin/ListingsSummaryPage.jsx';
 import UserCredentialsPage from '../pages/admin/UserCredentialsPage.jsx';
+import ListingSheetPage from '../pages/admin/ListingSheetPage.jsx';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import TaskIcon from '@mui/icons-material/Task';
 
@@ -135,6 +136,9 @@ export default function AdminLayout({ user, onLogout }) {
                     <ListItemButton component={Link} to="/admin/stock-ledger" onClick={() => setMobileOpen(false)}>
                   <ListItemText primary="R-C Tracker" />
                 </ListItemButton>
+                    <ListItemButton component={Link} to="/admin/listing-sheet" onClick={() => setMobileOpen(false)}>
+                      <ListItemText primary="Listing Sheet" />
+                    </ListItemButton>
                   </List>
                 </Collapse>
                 
@@ -355,6 +359,7 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/assignments" element={<AdminAssignmentsPage />} />
               <Route path="/task-list" element={<TaskListPage />} />
               <Route path="/stock-ledger" element={<StockLedgerPage />} />
+              <Route path="/listing-sheet" element={<ListingSheetPage />} />
 
             </>
           ) : null}

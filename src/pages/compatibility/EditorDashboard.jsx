@@ -117,7 +117,7 @@ export default function EditorDashboard({ user, onLogout }) {
             Total Assigned: {totalAssigned} | Completed: {totalCompleted} | Remaining: {remaining}
           </Typography>
           <Typography variant="body2" sx={{ mb: 1 }}>
-            Listing: {item.sourceAssignment?.listingPlatform?.name || '-'} / {item.sourceAssignment?.store?.name || '-'}
+            Listing: {item.sourceAssignment?.listingPlatform?.name || '-'} / {item.sourceAssignment?.store?.name || '-'} / {item.sourceAssignment?.marketplace?.replace('EBAY_', 'eBay ')?.replace('_', ' ') || '-'}
           </Typography>
           {t.supplierLink ? (
             <Typography variant="body2" sx={{ mb: 2 }}>

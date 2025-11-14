@@ -13,12 +13,18 @@ export default function ProductResearchPage() {
   const [sourcePlatforms, setSourcePlatforms] = useState([]);
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
-  const [form, setForm] = useState({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '' });
+  const [form, setForm] = useState({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
   const [errors, setErrors] = useState({});
   const currentUser = useMemo(() => {
     const raw = localStorage.getItem('user');
     return raw ? JSON.parse(raw) : null;
   }, []);
+
+  const marketplaces = [
+    { value: 'EBAY_US', label: 'eBay US' },
+    { value: 'EBAY_AUS', label: 'eBay Australia' },
+    { value: 'EBAY_CANADA', label: 'eBay Canada' }
+  ];
 
   const load = async () => {
     const [{ data: tasks }, { data: sp }, { data: c }] = await Promise.all([
@@ -53,6 +59,7 @@ export default function ProductResearchPage() {
     if (!form.sourcePlatformId) errs.sourcePlatformId = 'Required';
     if (!form.categoryId) errs.categoryId = 'Required';
     if (!form.subcategoryId) errs.subcategoryId = 'Required';
+    if (!form.marketplace) errs.marketplace = 'Required';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -66,11 +73,12 @@ export default function ProductResearchPage() {
       sellingPrice: Number(form.sellingPrice),
       sourcePlatformId: form.sourcePlatformId,
       categoryId: form.categoryId,
-      subcategoryId: form.subcategoryId
+      subcategoryId: form.subcategoryId,
+      marketplace: form.marketplace
     };
     await api.post('/tasks', payload);
     setOpen(false);
-    setForm({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '' });
+    setForm({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
     setErrors({});
     await load();
   };
@@ -109,6 +117,7 @@ export default function ProductResearchPage() {
               <TableCell>Source Price</TableCell>
               <TableCell>Selling Price</TableCell>
               <TableCell>Source Platform</TableCell>
+              <TableCell>Marketplace</TableCell>
               <TableCell>Category</TableCell>
               <TableCell>Subcategory</TableCell>
               <TableCell>Created By</TableCell>
@@ -125,6 +134,7 @@ export default function ProductResearchPage() {
                 <TableCell>{r.sourcePrice}</TableCell>
                 <TableCell>{r.sellingPrice}</TableCell>
                 <TableCell>{r.sourcePlatform?.name}</TableCell>
+                <TableCell>{r.marketplace?.replace('EBAY_', 'eBay ').replace('_', ' ')}</TableCell>
                 <TableCell>{r.category?.name || '-'}</TableCell>
                 <TableCell>{r.subcategory?.name || '-'}</TableCell>
                 <TableCell>{r.createdBy?.username || '-'}</TableCell>
@@ -154,6 +164,13 @@ export default function ProductResearchPage() {
                 {sourcePlatforms.map((p) => (<MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>))}
               </Select>
               {errors.sourcePlatformId ? <Alert severity="error" sx={{ mt: 0.5 }}>{errors.sourcePlatformId}</Alert> : null}
+            </FormControl>
+            <FormControl fullWidth error={!!errors.marketplace}>
+              <InputLabel>Marketplace</InputLabel>
+              <Select label="Marketplace" value={form.marketplace} onChange={(e) => setForm({ ...form, marketplace: e.target.value })} required>
+                {marketplaces.map((m) => (<MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>))}
+              </Select>
+              {errors.marketplace ? <Alert severity="error" sx={{ mt: 0.5 }}>{errors.marketplace}</Alert> : null}
             </FormControl>
             <FormControl fullWidth error={!!errors.categoryId}>
               <InputLabel>Category</InputLabel>
