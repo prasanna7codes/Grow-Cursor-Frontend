@@ -50,6 +50,11 @@ import ProgressTrackingPage from '../pages/compatibility/ProgressTrackingPage.js
 
 import FulfillmentDashboard from '../pages/admin/FulfillmentDashboard.jsx';
 import AwaitingShipmentPage from '../pages/admin/AwaitingShipmentPage.jsx';
+import ConversationTrackingPage from '../pages/admin/ConversationTrackingPage.jsx';
+import CancelledStatusPage from '../pages/admin/CancelledStatusPage.jsx';
+import ReturnPage from '../pages/admin/ReturnPage.jsx';
+import ReplacePage from '../pages/admin/ReplacePage.jsx';
+import INRPage from '../pages/admin/INRPage.jsx';
 import AboutMePage from '../pages/AboutMePage.jsx';
 import EmployeeDetailsPage from '../pages/admin/EmployeeDetailsPage.jsx';
 
@@ -183,10 +188,25 @@ export default function AdminLayout({ user, onLogout }) {
             <Collapse in={ordersMenuOpen} timeout="auto" unmountOnExit>
               <List component="div" disablePadding sx={{ pl: 4 }}>
                 <ListItemButton component={Link} to="/admin/fulfillment" onClick={() => setMobileOpen(false)}>
-                  <ListItemText primary="Fulfillment Orders" />
+                  <ListItemText primary="All Orders" />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/admin/awaiting-shipment" onClick={() => setMobileOpen(false)}>
                   <ListItemText primary="Awaiting Shipment" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/admin/conversation-tracking" onClick={() => setMobileOpen(false)}>
+                  <ListItemText primary="Conversation Tracking" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/admin/cancelled-status" onClick={() => setMobileOpen(false)}>
+                  <ListItemText primary="Cancelled Status" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/admin/return" onClick={() => setMobileOpen(false)}>
+                  <ListItemText primary="Return" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/admin/replace" onClick={() => setMobileOpen(false)}>
+                  <ListItemText primary="Replace" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/admin/inr" onClick={() => setMobileOpen(false)}>
+                  <ListItemText primary="INR" />
                 </ListItemButton>
               </List>
             </Collapse>
@@ -402,6 +422,11 @@ export default function AdminLayout({ user, onLogout }) {
             <>
               <Route path="/fulfillment" element={<FulfillmentDashboard />} />
               <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />
+              <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />
+              <Route path="/cancelled-status" element={<CancelledStatusPage />} />
+              <Route path="/return" element={<ReturnPage />} />
+              <Route path="/replace" element={<ReplacePage />} />
+              <Route path="/inr" element={<INRPage />} />
             </>
           )}
           <Route path="*" element={<Navigate to={isProductAdmin || isSuper ? "/admin/research" : isListingAdmin ? "/admin/listing" : isCompatibilityAdmin ? "/admin/compatibility-tasks" : isCompatibilityEditor ? "/admin/compatibility-editor" : isFulfillmentAdmin ? "/admin/fulfillment" : isHRAdmin || isOperationHead ? "/admin/employee-details" : "/admin/about-me"} replace />} />

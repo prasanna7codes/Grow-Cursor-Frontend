@@ -16,6 +16,8 @@ import {
   Stack,
   Divider,
   Button,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
@@ -31,6 +33,8 @@ export default function AwaitingShipmentPage() {
   const [error, setError] = useState('');
   const [copiedText, setCopiedText] = useState('');
   const [expandedShipping, setExpandedShipping] = useState({});
+  const [snack, setSnack] = useState({ open: false, message: '', severity: 'success' });
+  const [editingNotes, setEditingNotes] = useState({});
 
   useEffect(() => {
     fetchAwaitingOrders();
@@ -66,6 +70,11 @@ export default function AwaitingShipmentPage() {
       setCopiedText(val);
       setTimeout(() => setCopiedText(''), 1200);
     }
+  };
+
+  const showSnack = (severity, message) => {
+    setSnack({ open: true, severity, message });
+    setTimeout(() => setSnack(prev => ({ ...prev, open: false })), 2500);
   };
 
   const toggleShippingExpanded = (orderId) => {
@@ -118,15 +127,17 @@ export default function AwaitingShipmentPage() {
           <TableContainer component={Paper}>
             <Table size="small" sx={{ '& td, & th': { whiteSpace: 'nowrap' } }}>
               <TableHead>
-                <TableRow sx={{ backgroundColor: 'primary.main' }}>
+                  <TableRow sx={{ backgroundColor: 'primary.main' }}>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Seller</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Order ID</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Sold</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Ship By</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Product Name</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Buyer Name</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Zipcode</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Shipping Address</TableCell>
-                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tracking Number</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Manual Tracking</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Notes</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -161,6 +172,14 @@ export default function AwaitingShipmentPage() {
                       <IconButton size="small" onClick={() => handleCopy(order.buyer?.buyerRegistrationAddress?.fullName || '-') } aria-label="copy buyer name">
                         <ContentCopyIcon fontSize="small" />
                       </IconButton>
+                    </TableCell>
+                    <TableCell>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Typography variant="body2">{order.shippingPostalCode || order.buyer?.buyerRegistrationAddress?.postalCode || '-'}</Typography>
+                        <IconButton size="small" onClick={() => handleCopy(order.shippingPostalCode || order.buyer?.buyerRegistrationAddress?.postalCode || '-') } aria-label="copy postal code">
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </div>
                     </TableCell>
                     <TableCell sx={{ maxWidth: 300 }}>
                       {expandedShipping[order._id] ? (
@@ -275,7 +294,26 @@ export default function AwaitingShipmentPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" color="text.secondary">-</Typography>
+                      <ManualTrackingCell
+                        order={order}
+                        onSaved={(newVal) => {
+                          // update local state for the order
+                          setOrders(prev => prev.map(o => (o._id === order._id ? { ...o, manualTrackingNumber: newVal } : o)));
+                        }}
+                        onCopy={handleCopy}
+                        onNotify={showSnack}
+                      />
+                    </TableCell>
+
+                    {/* Notes Cell */}
+                    <TableCell sx={{ minWidth: 200 }}>
+                      <NotesCell
+                        order={order}
+                        onSaved={(newNotes) => {
+                          setOrders(prev => prev.map(o => (o._id === order._id ? { ...o, notes: newNotes } : o)));
+                        }}
+                        onNotify={showSnack}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -284,6 +322,149 @@ export default function AwaitingShipmentPage() {
           </TableContainer>
         )}
       </Paper>
+      <Snackbar open={snack.open} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={snack.severity} sx={{ width: '100%' }}>
+          {snack.message}
+        </Alert>
+      </Snackbar>
     </Box>
+  );
+}
+
+function ManualTrackingCell({ order, onSaved, onCopy, onNotify }) {
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue] = React.useState(order.manualTrackingNumber || '');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  useEffect(() => {
+    setValue(order.manualTrackingNumber || '');
+  }, [order.manualTrackingNumber]);
+
+  const startEdit = () => {
+    setError('');
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    setValue(order.manualTrackingNumber || '');
+    setEditing(false);
+    setError('');
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const { data } = await api.patch(`/ebay/orders/${order._id}/manual-tracking`, { manualTrackingNumber: value });
+      if (data?.success) {
+        onSaved(value);
+        setEditing(false);
+        onNotify?.('success', 'Manual tracking saved');
+      } else {
+        setError('Failed to save');
+        onNotify?.('error', 'Failed to save manual tracking');
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.error || 'Save failed';
+      setError(msg);
+      onNotify?.('error', msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      {editing ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input value={value} onChange={e => setValue(e.target.value)} style={{ padding: 6, minWidth: 160 }} />
+          <Button size="small" variant="contained" onClick={save} disabled={saving}>Save</Button>
+          <Button size="small" onClick={cancel} disabled={saving}>Cancel</Button>
+          {error && <Typography variant="caption" color="error">{error}</Typography>}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Typography variant="body2">{order.manualTrackingNumber || '-'}</Typography>
+          <IconButton size="small" onClick={() => onCopy?.(order.manualTrackingNumber || '-') } aria-label="copy manual tracking">
+            <ContentCopyIcon fontSize="small" />
+          </IconButton>
+          <Button size="small" onClick={startEdit}>Edit</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotesCell({ order, onSaved, onNotify }) {
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue] = React.useState(order.notes || '');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  useEffect(() => {
+    setValue(order.notes || '');
+  }, [order.notes]);
+
+  const startEdit = () => {
+    setError('');
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    setValue(order.notes || '');
+    setEditing(false);
+    setError('');
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const { data } = await api.patch(`/ebay/orders/${order._id}/notes`, { notes: value });
+      if (data?.success) {
+        onSaved(value);
+        setEditing(false);
+        onNotify?.('success', 'Notes saved');
+      } else {
+        setError('Failed to save');
+        onNotify?.('error', 'Failed to save notes');
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.error || 'Save failed';
+      setError(msg);
+      onNotify?.('error', msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      {editing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <textarea 
+            value={value} 
+            onChange={e => setValue(e.target.value)} 
+            style={{ padding: 6, minWidth: 180, minHeight: 60, resize: 'vertical' }}
+            placeholder="Enter notes..."
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button size="small" variant="contained" onClick={save} disabled={saving}>Save</Button>
+            <Button size="small" onClick={cancel} disabled={saving}>Cancel</Button>
+          </div>
+          {error && <Typography variant="caption" color="error">{error}</Typography>}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Typography variant="body2" sx={{ fontSize: '0.85rem', maxWidth: 200, wordWrap: 'break-word' }}>
+            {order.notes || '-'}
+          </Typography>
+          <Button size="small" onClick={startEdit} sx={{ alignSelf: 'flex-start' }}>
+            {order.notes ? 'Edit' : 'Add Notes'}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

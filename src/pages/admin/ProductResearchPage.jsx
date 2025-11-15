@@ -13,7 +13,7 @@ export default function ProductResearchPage() {
   const [sourcePlatforms, setSourcePlatforms] = useState([]);
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
-  const [form, setForm] = useState({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
+  const [form, setForm] = useState({ productTitle: '', supplierLink: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
   const [errors, setErrors] = useState({});
   const currentUser = useMemo(() => {
     const raw = localStorage.getItem('user');
@@ -54,8 +54,6 @@ export default function ProductResearchPage() {
     const errs = {};
     if (!form.productTitle) errs.productTitle = 'Required';
     if (!form.supplierLink) errs.supplierLink = 'Required';
-    if (!form.sourcePrice || form.sourcePrice <= 0) errs.sourcePrice = 'Required and must be > 0';
-    if (!form.sellingPrice || form.sellingPrice <= 0) errs.sellingPrice = 'Required and must be > 0';
     if (!form.sourcePlatformId) errs.sourcePlatformId = 'Required';
     if (!form.categoryId) errs.categoryId = 'Required';
     if (!form.subcategoryId) errs.subcategoryId = 'Required';
@@ -69,8 +67,7 @@ export default function ProductResearchPage() {
     const payload = {
       productTitle: form.productTitle,
       supplierLink: form.supplierLink,
-      sourcePrice: Number(form.sourcePrice),
-      sellingPrice: Number(form.sellingPrice),
+      
       sourcePlatformId: form.sourcePlatformId,
       categoryId: form.categoryId,
       subcategoryId: form.subcategoryId,
@@ -78,7 +75,7 @@ export default function ProductResearchPage() {
     };
     await api.post('/tasks', payload);
     setOpen(false);
-    setForm({ productTitle: '', supplierLink: '', sourcePrice: '', sellingPrice: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
+    setForm({ productTitle: '', supplierLink: '', sourcePlatformId: '', categoryId: '', subcategoryId: '', marketplace: '' });
     setErrors({});
     await load();
   };
@@ -114,8 +111,7 @@ export default function ProductResearchPage() {
               <TableCell>Date</TableCell>
               <TableCell>Product Title</TableCell>
               <TableCell>Supplier Link</TableCell>
-              <TableCell>Source Price</TableCell>
-              <TableCell>Selling Price</TableCell>
+              
               <TableCell>Source Platform</TableCell>
               <TableCell>Marketplace</TableCell>
               <TableCell>Category</TableCell>
@@ -131,8 +127,7 @@ export default function ProductResearchPage() {
                 <TableCell>{new Date(r.date).toLocaleDateString()}</TableCell>
                 <TableCell>{r.productTitle}</TableCell>
                 <TableCell><a href={r.supplierLink} target="_blank" rel="noreferrer">Link</a></TableCell>
-                <TableCell>{r.sourcePrice}</TableCell>
-                <TableCell>{r.sellingPrice}</TableCell>
+                
                 <TableCell>{r.sourcePlatform?.name}</TableCell>
                 <TableCell>{r.marketplace?.replace('EBAY_', 'eBay ').replace('_', ' ')}</TableCell>
                 <TableCell>{r.category?.name || '-'}</TableCell>
@@ -154,10 +149,7 @@ export default function ProductResearchPage() {
             {/* Date is set automatically by backend */}
             <TextField label="Product Title" value={form.productTitle} onChange={(e) => setForm({ ...form, productTitle: e.target.value })} error={!!errors.productTitle} helperText={errors.productTitle} required />
             <TextField label="Supplier Link" value={form.supplierLink} onChange={(e) => setForm({ ...form, supplierLink: e.target.value })} error={!!errors.supplierLink} helperText={errors.supplierLink} required />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Source Price" type="number" value={form.sourcePrice} onChange={(e) => setForm({ ...form, sourcePrice: Number(e.target.value) })} error={!!errors.sourcePrice} helperText={errors.sourcePrice} required />
-              <TextField label="Selling Price" type="number" value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: Number(e.target.value) })} error={!!errors.sellingPrice} helperText={errors.sellingPrice} required />
-            </Stack>
+            
             <FormControl fullWidth error={!!errors.sourcePlatformId}>
               <InputLabel>Source Platform</InputLabel>
               <Select label="Source Platform" value={form.sourcePlatformId} onChange={(e) => setForm({ ...form, sourcePlatformId: e.target.value })} required>

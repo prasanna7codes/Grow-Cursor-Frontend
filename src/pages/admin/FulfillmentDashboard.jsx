@@ -49,10 +49,17 @@ export default function FulfillmentDashboard() {
   const [searchOrderId, setSearchOrderId] = useState('');
   const [searchBuyerName, setSearchBuyerName] = useState('');
   const [searchSoldDate, setSearchSoldDate] = useState('');
+  const [searchMarketplace, setSearchMarketplace] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   // Expanded shipping addresses
   const [expandedShipping, setExpandedShipping] = useState({});
+
+  // Editing messaging status
+  const [editingMessagingStatus, setEditingMessagingStatus] = useState({});
+
+  // Editing item status
+  const [editingItemStatus, setEditingItemStatus] = useState({});
 
   // Snackbar state
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -74,7 +81,7 @@ export default function FulfillmentDashboard() {
     // Apply filters whenever orders or search criteria change
     applyFilters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, searchOrderId, searchBuyerName, searchSoldDate]);
+  }, [orders, searchOrderId, searchBuyerName, searchSoldDate, searchMarketplace]);
 
   function applyFilters() {
     let filtered = [...orders];
@@ -101,6 +108,11 @@ export default function FulfillmentDashboard() {
         const orderDate = formatDate(order.dateSold);
         return orderDate.includes(searchSoldDate);
       });
+    }
+
+    // Filter by Marketplace
+    if (searchMarketplace && searchMarketplace !== '') {
+      filtered = filtered.filter(order => order.purchaseMarketplaceId === searchMarketplace);
     }
 
     setFilteredOrders(filtered);
@@ -201,6 +213,52 @@ export default function FulfillmentDashboard() {
       setCopiedText(val);
       setTimeout(() => setCopiedText(''), 1200);
     }
+  };
+
+  // Update messaging status in database
+  const updateMessagingStatus = async (orderId, status) => {
+    try {
+      await api.patch(`/ebay/orders/${orderId}/messaging-status`, { messagingStatus: status });
+      // Update local state
+      setOrders(prevOrders =>
+        prevOrders.map(o => (o._id === orderId ? { ...o, messagingStatus: status } : o))
+      );
+      setSnackbarMsg('Messaging status updated successfully');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (err) {
+      console.error('Failed to update messaging status:', err);
+      setSnackbarMsg('Failed to update messaging status');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
+  };
+
+  const handleMessagingStatusChange = (orderId, newStatus) => {
+    updateMessagingStatus(orderId, newStatus);
+  };
+
+  // Update item status in database
+  const updateItemStatus = async (orderId, status) => {
+    try {
+      await api.patch(`/ebay/orders/${orderId}/item-status`, { itemStatus: status });
+      // Update local state
+      setOrders(prevOrders =>
+        prevOrders.map(o => (o._id === orderId ? { ...o, itemStatus: status } : o))
+      );
+      setSnackbarMsg('Item status updated successfully');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (err) {
+      console.error('Failed to update item status:', err);
+      setSnackbarMsg('Failed to update item status');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
+  };
+
+  const handleItemStatusChange = (orderId, newStatus) => {
+    updateItemStatus(orderId, newStatus);
   };
 
   const toggleShippingExpanded = (orderId) => {
@@ -332,6 +390,22 @@ export default function FulfillmentDashboard() {
                   placeholder="MM/DD/YYYY"
                   sx={{ flex: 1 }}
                 />
+                <FormControl size="small" sx={{ flex: 1, minWidth: 150 }}>
+                  <InputLabel id="marketplace-filter-label">Marketplace</InputLabel>
+                  <Select
+                    labelId="marketplace-filter-label"
+                    value={searchMarketplace}
+                    label="Marketplace"
+                    onChange={(e) => setSearchMarketplace(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>All</em>
+                    </MenuItem>
+                    <MenuItem value="EBAY_US">EBAY_US</MenuItem>
+                    <MenuItem value="EBAY_AU">EBAY_AU</MenuItem>
+                    <MenuItem value="EBAY_ENCA">EBAY_Canada</MenuItem>
+                  </Select>
+                </FormControl>
                 <Button
                   size="small"
                   variant="outlined"
@@ -339,6 +413,7 @@ export default function FulfillmentDashboard() {
                     setSearchOrderId('');
                     setSearchBuyerName('');
                     setSearchSoldDate('');
+                    setSearchMarketplace('');
                   }}
                   sx={{ minWidth: 100 }}
                 >
@@ -437,6 +512,7 @@ export default function FulfillmentDashboard() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Product Name</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Buyer Name</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Shipping Address</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Marketplace</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">Subtotal</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">Shipping</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">Sales Tax</TableCell>
@@ -446,6 +522,8 @@ export default function FulfillmentDashboard() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Cancel Status</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Refunds</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tracking Number</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Messaging Status</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Item Status</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -615,6 +693,11 @@ export default function FulfillmentDashboard() {
                         </Button>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {order.purchaseMarketplaceId || '-'}
+                      </Typography>
+                    </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" fontWeight="medium">
                         {formatCurrency(order.subtotal)}
@@ -702,6 +785,65 @@ export default function FulfillmentDashboard() {
                         </Box>
                       ) : (
                         <Typography variant="body2" color="text.secondary">-</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 180 }}>
+                      <FormControl size="small" fullWidth>
+                        <Select
+                          value={order.messagingStatus || 'Not Yet Started'}
+                          onChange={(e) => handleMessagingStatusChange(order._id, e.target.value)}
+                          sx={{ fontSize: '0.875rem' }}
+                        >
+                          <MenuItem value="Not Yet Started">Not Yet Started</MenuItem>
+                          <MenuItem value="Ongoing Conversation">Ongoing Conversation</MenuItem>
+                          <MenuItem value="Resolved">Resolved</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+
+                    {/* Item Status Column */}
+                    <TableCell sx={{ minWidth: 150 }}>
+                      {order.itemStatus === 'Resolved' ? (
+                        <Box>
+                          <Chip 
+                            label={`Resolved - ${order.resolvedFrom || 'Unknown'}`}
+                            color="success" 
+                            size="small"
+                            sx={{ fontWeight: 'bold', mb: 0.5 }}
+                          />
+                          {order.notes && (
+                            <Tooltip title={order.notes} arrow placement="top">
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  display: 'block',
+                                  color: 'text.secondary',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  maxWidth: 200,
+                                  cursor: 'pointer',
+                                  '&:hover': { color: 'primary.main' }
+                                }}
+                              >
+                                📝 {order.notes}
+                              </Typography>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      ) : (
+                        <FormControl size="small" fullWidth>
+                          <Select
+                            value={order.itemStatus || 'None'}
+                            onChange={(e) => handleItemStatusChange(order._id, e.target.value)}
+                            sx={{ fontSize: '0.875rem' }}
+                          >
+                            <MenuItem value="None" sx={{ color: 'text.secondary' }}>None</MenuItem>
+                            <MenuItem value="Return" sx={{ color: 'error.main', fontWeight: 'medium' }}>Return</MenuItem>
+                            <MenuItem value="Replace" sx={{ color: 'warning.main', fontWeight: 'medium' }}>Replace</MenuItem>
+                            <MenuItem value="INR" sx={{ color: 'error.dark', fontWeight: 'medium' }}>INR</MenuItem>
+                          </Select>
+                        </FormControl>
                       )}
                     </TableCell>
                   </TableRow>
