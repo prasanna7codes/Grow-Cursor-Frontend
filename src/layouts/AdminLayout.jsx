@@ -58,9 +58,11 @@ import ReturnPage from '../pages/admin/ReturnPage.jsx';
 import ReplacePage from '../pages/admin/ReplacePage.jsx';
 import INRPage from '../pages/admin/INRPage.jsx';
 import ReturnRequestedPage from '../pages/admin/ReturnRequestedPage.jsx';
-import MessageReceivedPage from '../pages/admin/MessageReceivedPage.jsx';
+//import MessageReceivedPage from '../pages/admin/MessageReceivedPage.jsx';
 import AboutMePage from '../pages/AboutMePage.jsx';
 import EmployeeDetailsPage from '../pages/admin/EmployeeDetailsPage.jsx';
+import BuyerChatPage from '../pages/admin/BuyerChatPage.jsx';
+
 
 
 
@@ -441,7 +443,7 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/replace" element={<ReplacePage />} />
               <Route path="/inr" element={<INRPage />} />
               <Route path="/return-requested" element={<ReturnRequestedPage />} />
-              <Route path="/message-received" element={<MessageReceivedPage />} />
+              <Route path="/message-received" element={<BuyerChatPage/>} />
             </>
           )}
           <Route path="*" element={<Navigate to={isProductAdmin || isSuper ? "/admin/research" : isListingAdmin ? "/admin/listing" : isCompatibilityAdmin ? "/admin/compatibility-tasks" : isCompatibilityEditor ? "/admin/compatibility-editor" : isFulfillmentAdmin ? "/admin/fulfillment" : isHRAdmin || isOperationHead ? "/admin/employee-details" : "/admin/about-me"} replace />} />
