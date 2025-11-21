@@ -10,6 +10,8 @@ import ListingAnalyticsPage from './pages/admin/ListingAnalyticsPage.jsx';
 import ListerDashboard from './pages/lister/ListerDashboard.jsx';
 import SellerEbayPage from './pages/SellerProfilePage.jsx';
 import AboutMePage from './pages/AboutMePage.jsx';
+import ReturnRequestedPage from './pages/admin/ReturnRequestedPage.jsx';
+import MessageReceivedPage from './pages/admin/MessageReceivedPage.jsx';
 
 import { setAuthToken } from './lib/api'
 
