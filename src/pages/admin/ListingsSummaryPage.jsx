@@ -17,7 +17,9 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Stack
+  Stack,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
@@ -25,6 +27,9 @@ import { format, parseISO } from 'date-fns';
 import api from '../../lib/api.js';
 
 export default function ListingsSummaryPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
   const [rows, setRows] = useState([]);
   const [platforms, setPlatforms] = useState([]);
   const [stores, setStores] = useState([]);
@@ -120,6 +125,29 @@ export default function ListingsSummaryPage() {
     );
   }, [processedRows]);
 
+  const SummaryCards = () => (
+    <Stack spacing={1.5}>
+      {processedRows.map((r, idx) => (
+        <Paper key={idx} elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+          <Stack spacing={0.5}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              {r.date ?? '—'}
+            </Typography>
+            <Typography variant="body2">Platform: {r.platform || '—'}</Typography>
+            <Typography variant="body2">Store: {r.store || '—'}</Typography>
+            <Typography variant="body2">Listing Qty: {r.totalQuantity ?? 0}</Typography>
+          </Stack>
+        </Paper>
+      ))}
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Total: {totals.totalQuantity}
+        </Typography>
+      </Paper>
+    </Stack>
+  );
+
   return (
     <Box>
       <Typography variant="h6" sx={{ mb: 2 }}>Listings Summary (day-wise-assigned-by the listing-admin)</Typography>
@@ -214,7 +242,13 @@ export default function ListingsSummaryPage() {
         </Grid>
       </Paper>
 
-      <TableContainer component={Paper} sx={{ mb: 3, maxHeight: 400, maxWidth: '100%', overflow: 'auto', position: 'relative' }}>
+      {/* MOBILE/TABLET: Cards */}
+      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 3 }}>
+        <SummaryCards />
+      </Box>
+
+      {/* DESKTOP: Table */}
+      <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, mb: 3, maxHeight: 400, maxWidth: '100%', overflow: 'auto', position: 'relative' }}>
         <Box sx={{ overflowX: 'auto', overflowY: 'auto', position: 'sticky', top: 0, left: 0 }}>
           <Table size="small" stickyHeader>
             <TableHead>
