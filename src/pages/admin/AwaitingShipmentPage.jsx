@@ -381,6 +381,7 @@ export default function AwaitingShipmentPage() {
   const [searchOrderId, setSearchOrderId] = useState('');
   const [searchBuyerName, setSearchBuyerName] = useState('');
   const [searchMarketplace, setSearchMarketplace] = useState('');
+  const [searchSoldDate, setSearchSoldDate] = useState('');
 
   // Debounced Values
   const [debouncedOrderId, setDebouncedOrderId] = useState('');
@@ -425,7 +426,7 @@ export default function AwaitingShipmentPage() {
   useEffect(() => {
     fetchAwaitingOrders();
     // eslint-disable-next-line
-  }, [page, debouncedOrderId, debouncedBuyerName, selectedSeller, searchMarketplace]);
+  }, [page, debouncedOrderId, debouncedBuyerName, selectedSeller, searchMarketplace, searchSoldDate]);
 
   // Handlers
   const handleSellerChange = (e) => {
@@ -440,6 +441,7 @@ export default function AwaitingShipmentPage() {
     setDebouncedBuyerName('');
     setSelectedSeller('');
     setSearchMarketplace('');
+    setSearchSoldDate('');
     setPage(1);
   };
 
@@ -458,6 +460,14 @@ export default function AwaitingShipmentPage() {
       if (debouncedBuyerName) params.searchBuyerName = debouncedBuyerName;
       if (selectedSeller) params.sellerId = selectedSeller;
       if (searchMarketplace) params.searchMarketplace = searchMarketplace;
+      if (searchSoldDate) {
+        params.startDate = searchSoldDate;
+        params.endDate = searchSoldDate;
+      }
+      if (searchSoldDate) {
+        params.startDate = searchSoldDate;
+        params.endDate = searchSoldDate;
+      }
 
       // SMART CHECK: If params haven't changed since last fetch, STOP.
       const paramsString = JSON.stringify(params);
@@ -626,6 +636,20 @@ export default function AwaitingShipmentPage() {
                 <MenuItem value="EBAY_ENCA">EBAY_CA</MenuItem>
               </Select>
             </FormControl>
+
+            {/* 5. SHIP BY DATE FILTER */}
+            <TextField
+              size="small"
+              label="Ship By Date"
+              type="date"
+              value={searchSoldDate}
+              onChange={(e) => {
+                setSearchSoldDate(e.target.value);
+                setPage(1);
+              }}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 170 }}
+            />
 
             <Button variant="outlined" onClick={handleClearFilters} size="small">Clear</Button>
           </Stack>
