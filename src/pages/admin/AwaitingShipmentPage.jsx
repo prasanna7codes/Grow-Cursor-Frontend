@@ -513,7 +513,22 @@ export default function AwaitingShipmentPage() {
     }));
   };
 
-  const formatDate = (dateStr, marketplaceId) => {
+  // Helper function to check if ship-by date is within 24 hours in IST
+  const isWithin24HoursIST = (dateStr) => {
+    if (!dateStr) return false;
+    try {
+      const shipByDate = new Date(dateStr);
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const shipByIST = new Date(shipByDate.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const diffMs = shipByIST - nowIST;
+      const diffHours = diffMs / (1000 * 60 * 60);
+      return diffHours <= 24 && diffHours >= 0;
+    } catch {
+      return false;
+    }
+  };
+
+  const formatDate = (dateStr, marketplaceId, isShipByDate = false) => {
     if (!dateStr) return '-';
     try {
       const date = new Date(dateStr);
@@ -544,10 +559,27 @@ export default function AwaitingShipmentPage() {
         timeZone: timeZone,
       });
 
+      const isUrgent = isShipByDate && isWithin24HoursIST(dateStr);
+
       return (
         <Stack spacing={0}>
-          <Typography variant="body2">{formattedDate}</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+          <Typography 
+            variant="body2" 
+            sx={{ 
+              color: isUrgent ? 'error.main' : 'text.primary',
+              fontWeight: isUrgent ? 'bold' : 'normal'
+            }}
+          >
+            {formattedDate}
+          </Typography>
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              fontSize: '0.7rem',
+              color: isUrgent ? 'error.main' : 'text.secondary',
+              fontWeight: isUrgent ? 600 : 'normal'
+            }}
+          >
             {formattedTime} ({timeZoneLabel})
           </Typography>
         </Stack>
@@ -744,7 +776,7 @@ export default function AwaitingShipmentPage() {
                       {formatDate(order.dateSold, order.purchaseMarketplaceId)}
                     </TableCell>
                     <TableCell>
-                      {formatDate(order.shipByDate || order.lineItems?.[0]?.lineItemFulfillmentInstructions?.shipByDate, order.purchaseMarketplaceId)}
+                      {formatDate(order.shipByDate || order.lineItems?.[0]?.lineItemFulfillmentInstructions?.shipByDate, order.purchaseMarketplaceId, true)}
                     </TableCell>
                     <TableCell sx={{ minWidth: 250, maxWidth: 350 }}>
                       <Stack spacing={0.5}>
