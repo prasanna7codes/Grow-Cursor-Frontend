@@ -99,7 +99,9 @@ export default function App() {
               <Navigate to="/login" replace />
             )
           }
+
         />
+
         <Route
           path="/lister"
           element={token && user && (user.role === 'lister' || user.role === 'advancelister' || user.role === 'trainee') ? <ListerDashboard user={user} onLogout={logout} /> : <Navigate to="/login" replace />}
