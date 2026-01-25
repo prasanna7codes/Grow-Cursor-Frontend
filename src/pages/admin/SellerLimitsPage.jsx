@@ -10,8 +10,13 @@ import {
     TableHead,
     TableRow,
     CircularProgress,
+
     Alert,
-    Chip
+    Chip,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem
 } from '@mui/material';
 import api from '../../lib/api';
 
@@ -20,10 +25,15 @@ const SellerLimitsPage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [selectedSeller, setSelectedSeller] = useState('All');
 
     useEffect(() => {
         fetchLimits();
     }, []);
+
+    const filteredData = selectedSeller === 'All'
+        ? data
+        : data.filter(item => item.username === selectedSeller);
 
     const fetchLimits = async () => {
         setLoading(true);
@@ -80,6 +90,27 @@ const SellerLimitsPage = () => {
                 </Box>
             </Box>
 
+            {/* Filter Dropdown */}
+            <Box sx={{ mb: 3, maxWidth: 300 }}>
+                <FormControl fullWidth size="small">
+                    <InputLabel id="seller-select-label">Filter by Seller</InputLabel>
+                    <Select
+                        labelId="seller-select-label"
+                        id="seller-select"
+                        value={selectedSeller}
+                        label="Filter by Seller"
+                        onChange={(e) => setSelectedSeller(e.target.value)}
+                    >
+                        <MenuItem value="All">All Sellers</MenuItem>
+                        {data.map((item) => (
+                            <MenuItem key={item.sellerId} value={item.username}>
+                                {item.username}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+            </Box>
+
             {loading && (
                 <Alert severity="info" sx={{ mb: 2 }}>
                     Fetching latest seller limits from eBay... This may take a few moments.
@@ -103,7 +134,7 @@ const SellerLimitsPage = () => {
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {data.map((row) => (
+                        {filteredData.map((row) => (
                             <TableRow
                                 key={row.sellerId}
                                 sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
@@ -133,7 +164,7 @@ const SellerLimitsPage = () => {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {data.length === 0 && !loading && !error && (
+                        {filteredData.length === 0 && !loading && !error && (
                             <TableRow>
                                 <TableCell colSpan={4} align="center">
                                     No Data Available
