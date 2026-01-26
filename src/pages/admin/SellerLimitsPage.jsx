@@ -22,14 +22,10 @@ import api from '../../lib/api';
 
 const SellerLimitsPage = () => {
     const [data, setData] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [selectedSeller, setSelectedSeller] = useState('All');
-
-    useEffect(() => {
-        fetchLimits();
-    }, []);
 
     const filteredData = selectedSeller === 'All'
         ? data
@@ -167,7 +163,7 @@ const SellerLimitsPage = () => {
                         {filteredData.length === 0 && !loading && !error && (
                             <TableRow>
                                 <TableCell colSpan={4} align="center">
-                                    No Data Available
+                                    Click Refresh to Load Data
                                 </TableCell>
                             </TableRow>
                         )}
