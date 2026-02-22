@@ -80,6 +80,7 @@ import RangeAnalyzerPage from '../pages/admin/RangeAnalyzerPage.jsx';
 import FeedUploadPage from '../pages/ebay/FeedUploadPage.jsx';
 import SellingPrivilegesPage from '../pages/admin/SellingPrivilegesPage.jsx';
 import EbayApiUsagePage from '../pages/admin/EbayApiUsagePage.jsx';
+import RefundPage from '../pages/admin/RefundPage.jsx';
 
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -1170,6 +1171,24 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
+        {/* Issue Refunds - Superadmin only */}
+        {isSuper && (
+          <ListItem disablePadding>
+            <ListItemButton
+              component={Link}
+              to="/admin/refunds"
+              onClick={() => setMobileOpen(false)}
+              selected={location.pathname === '/admin/refunds'}
+              sx={selectedMenuItemStyle}
+            >
+              <ListItemIcon>
+                <NavIcon icon={MoneyOffIcon} label="Issue Refunds" sidebarOpen={sidebarOpen} />
+              </ListItemIcon>
+              {sidebarOpen && <ListItemText primary="Issue Refunds" />}
+            </ListItemButton>
+          </ListItem>
+        )}
+
         {/* Manage Components Dropdown */}
         {isSuper && (
           <>
@@ -1536,6 +1555,9 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />
             </>
           ) : null}
+          {isSuper && (
+            <Route path="/refunds" element={<RefundPage />} />
+          )}
           {isSuper && (
             <>
               <>
