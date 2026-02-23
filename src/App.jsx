@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import LoginPage from './pages/LoginPage.jsx';
@@ -17,7 +17,7 @@ import BankAccountsPage from './pages/admin/BankAccountsPage.jsx';
 import TransactionPage from './pages/admin/TransactionPage.jsx';
 import IdeasPage from './pages/IdeasPage.jsx';
 
-import { setAuthToken } from './lib/api'
+import api, { setAuthToken } from './lib/api'
 import { hasPermission, PERMISSIONS as P } from './constants/permissions';
 import { AttendanceProvider } from './context/AttendanceContext';
 import AttendanceModal from './components/Attendance/AttendanceModal';
@@ -56,6 +56,28 @@ function useAuth() {
     localStorage.removeItem('user');
     navigate('/login');
   };
+
+  // Refresh permissions from server on every page load/refresh
+  const refreshPermissions = useCallback(async () => {
+    if (!token || !user) return;
+    try {
+      setAuthToken(token); // ensure token is set for API call
+      const { data } = await api.get('/permissions/me');
+      if (data.permissions) {
+        const updatedUser = { ...user, permissions: data.permissions };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      }
+    } catch (err) {
+      // Silently fail — if token is invalid, the 401 interceptor will handle it
+      console.error('Failed to refresh permissions:', err);
+    }
+  }, [token]); // only depend on token, not user, to avoid infinite loop
+
+  useEffect(() => {
+    refreshPermissions();
+  }, [refreshPermissions]);
+
   return { token, user, login, logout };
 }
 
