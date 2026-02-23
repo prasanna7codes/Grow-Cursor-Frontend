@@ -18,6 +18,7 @@ import TransactionPage from './pages/admin/TransactionPage.jsx';
 import IdeasPage from './pages/IdeasPage.jsx';
 
 import { setAuthToken } from './lib/api'
+import { hasPermission, PERMISSIONS as P } from './constants/permissions';
 import { AttendanceProvider } from './context/AttendanceContext';
 import AttendanceModal from './components/Attendance/AttendanceModal';
 import AttendanceTimer from './components/Attendance/AttendanceTimer';
@@ -36,19 +37,15 @@ function useAuth() {
     setAuthToken(t);
     localStorage.setItem('user', JSON.stringify(u));
 
-    // Navigation Logic
-    if (u.role === 'lister') navigate('/lister');
-    else if (u.role === 'advancelister') navigate('/lister');
-    else if (u.role === 'trainee') navigate('/lister');
-    else if (u.role === 'compatibilityadmin') navigate('/admin/compatibility-tasks');
-    else if (u.role === 'compatibilityeditor') navigate('/admin/compatibility-editor');
-    else if (u.role === 'seller') navigate('/seller-ebay');
-    else if (u.role === 'fulfillmentadmin') navigate('/admin/fulfillment');
-    else if (u.role === 'hradmin') navigate('/admin/employee-details');
-    else if (u.role === 'hr') navigate('/admin/about-me');
-    else if (u.role === 'operationhead') navigate('/admin/employee-details');
-    // For HOC and Compliance Manager, we send them to the general admin area
-    // AdminLayout will handle the specific redirect to /fulfillment
+    // Navigation Logic — use permissions first, fallback to role-based defaults
+    if (u.role === 'superadmin') navigate('/admin');
+    else if (hasPermission(u, P.LISTER_DASHBOARD)) navigate('/lister');
+    else if (hasPermission(u, P.COMPATIBILITY_TASKS)) navigate('/admin/compatibility-tasks');
+    else if (hasPermission(u, P.COMPATIBILITY_EDITOR)) navigate('/admin/compatibility-editor');
+    else if (hasPermission(u, P.SELLER_PROFILE)) navigate('/seller-ebay');
+    else if (hasPermission(u, P.FULFILLMENT)) navigate('/admin/fulfillment');
+    else if (hasPermission(u, P.EMPLOYEE_DETAILS)) navigate('/admin/employee-details');
+    else if (hasPermission(u, P.PRODUCT_RESEARCH)) navigate('/admin/research');
     else navigate('/admin');
   };
   const logout = () => {
@@ -88,21 +85,8 @@ export default function App() {
             <Route
               path="/admin/*"
               element={
-                user.role === 'productadmin' ||
-                  user.role === 'listingadmin' ||
-                  user.role === 'superadmin' ||
-                  user.role === 'compatibilityadmin' ||
-                  user.role === 'compatibilityeditor' ||
-                  user.role === 'fulfillmentadmin' ||
-                  user.role === 'hradmin' ||
-                  user.role === 'hr' ||
-                  user.role === 'operationhead' ||
-                  user.role === 'hoc' ||
-                  user.role === 'compliancemanager' ||
-                  // Lister roles - access to template listing workflow only
-                  user.role === 'lister' ||
-                  user.role === 'advancelister' ||
-                  user.role === 'trainee' ? (
+                user.role === 'superadmin' ||
+                  (user.permissions && user.permissions.length > 0) ? (
                   <AdminLayout user={user} onLogout={logout} />
                 ) : (
                   <Navigate to="/login" replace />
@@ -111,16 +95,16 @@ export default function App() {
             />
             <Route
               path="/lister"
-              element={user.role === 'lister' || user.role === 'advancelister' || user.role === 'trainee' ? <ListerDashboard user={user} onLogout={logout} /> : <Navigate to="/login" replace />}
+              element={hasPermission(user, P.LISTER_DASHBOARD) ? <ListerDashboard user={user} onLogout={logout} /> : <Navigate to="/login" replace />}
             />
             <Route
               path="/lister/range-analyzer"
-              element={user.role === 'lister' || user.role === 'advancelister' || user.role === 'trainee' ? <RangeAnalyzerPage /> : <Navigate to="/login" replace />}
+              element={hasPermission(user, P.RANGE_ANALYZER) ? <RangeAnalyzerPage /> : <Navigate to="/login" replace />}
             />
             <Route
               path="/seller-ebay"
               element={
-                user.role === 'seller' || user.role === 'superadmin' ? (
+                hasPermission(user, P.SELLER_PROFILE) ? (
                   <SellerEbayPage user={user} onLogout={logout} />
                 ) : (
                   <Navigate to="/login" replace />

@@ -129,6 +129,9 @@ import LeaveAdminPage from '../pages/admin/LeaveAdminPage.jsx';
 import AttendanceAdminPage from '../pages/admin/AttendanceAdminPage.jsx';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AsinDirectoryPage from '../pages/admin/AsinDirectoryPage.jsx';
+import ManagePermissionsPage from '../pages/admin/ManagePermissionsPage.jsx';
+import { hasPermission, PERMISSIONS as P } from '../constants/permissions';
+
 
 const drawerWidth = 230;
 
@@ -186,26 +189,11 @@ export default function AdminLayout({ user, onLogout }) {
     }
   }, [sidebarOpen]);
 
-  // --- ROLE DEFINITIONS ---
+  // --- ROLE / PERMISSION HELPERS ---
   const isSuper = user?.role === 'superadmin';
-  const isProductAdmin = user?.role === 'productadmin';
-  const isListingAdmin = user?.role === 'listingadmin';
-  const isCompatibilityAdmin = user?.role === 'compatibilityadmin';
-  const isCompatibilityEditor = user?.role === 'compatibilityeditor';
-  const isFulfillmentAdmin = user?.role === 'fulfillmentadmin';
-  const isHRAdmin = user?.role === 'hradmin';
-  const isOperationHead = user?.role === 'operationhead';
-  const isSeller = user?.role === 'seller';
-
-  // New Roles
-  const isHOC = user?.role === 'hoc';
-  const isComplianceManager = user?.role === 'compliancemanager';
-
-  // Lister Roles
-  const isLister = user?.role === 'lister';
-  const isAdvanceLister = user?.role === 'advancelister';
-  const isTrainee = user?.role === 'trainee';
-  const isAnyLister = isLister || isAdvanceLister || isTrainee;
+  const hp = (...perms) => hasPermission(user, ...perms);
+  // Legacy role booleans kept only for edge cases (lister dashboard link)
+  const isAnyLister = ['lister', 'advancelister', 'trainee'].includes(user?.role);
 
   // Custom styling for selected menu items
   const selectedMenuItemStyle = {
@@ -292,8 +280,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItemButton>
         </ListItem>
 
-        {/* Finance Dropdown - visible to superadmin only */}
-        {isSuper && (
+        {/* Finance Dropdown */}
+        {hp(P.PAYONEER_SHEET, P.BANK_ACCOUNTS, P.TRANSACTIONS, P.EXTRA_EXPENSES, P.CREDIT_CARD_NAMES) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -393,42 +381,46 @@ export default function AdminLayout({ user, onLogout }) {
               </MenuItem>
             </Menu>
 
-            {/* View All Messages - standalone */}
-            <ListItem disablePadding>
-              <ListItemButton
-                component={Link}
-                to="/admin/internal-messages-admin"
-                onClick={() => setMobileOpen(false)}
-                selected={location.pathname === '/admin/internal-messages-admin'}
-                sx={selectedMenuItemStyle}
-              >
-                <ListItemIcon>
-                  <NavIcon icon={AdminPanelSettingsIcon} label="Admin Panel - View All Messages" sidebarOpen={sidebarOpen} />
-                </ListItemIcon>
-                {sidebarOpen && <ListItemText primary="View All Messages" />}
-              </ListItemButton>
-            </ListItem>
+            {/* View All Messages */}
+            {hp(P.VIEW_ALL_MESSAGES) && (
+              <ListItem disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to="/admin/internal-messages-admin"
+                  onClick={() => setMobileOpen(false)}
+                  selected={location.pathname === '/admin/internal-messages-admin'}
+                  sx={selectedMenuItemStyle}
+                >
+                  <ListItemIcon>
+                    <NavIcon icon={AdminPanelSettingsIcon} label="Admin Panel - View All Messages" sidebarOpen={sidebarOpen} />
+                  </ListItemIcon>
+                  {sidebarOpen && <ListItemText primary="View All Messages" />}
+                </ListItemButton>
+              </ListItem>
+            )}
 
-            {/* Working Hours Tracking - superadmin only */}
-            <ListItem disablePadding>
-              <ListItemButton
-                component={Link}
-                to="/admin/attendance"
-                onClick={() => setMobileOpen(false)}
-                selected={location.pathname === '/admin/attendance'}
-                sx={selectedMenuItemStyle}
-              >
-                <ListItemIcon>
-                  <NavIcon icon={AccessTimeIcon} label="Working Hours Tracking" sidebarOpen={sidebarOpen} />
-                </ListItemIcon>
-                {sidebarOpen && <ListItemText primary="Working Hours Tracking" />}
-              </ListItemButton>
-            </ListItem>
+            {/* Working Hours Tracking */}
+            {hp(P.WORKING_HOURS_TRACKING) && (
+              <ListItem disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to="/admin/attendance"
+                  onClick={() => setMobileOpen(false)}
+                  selected={location.pathname === '/admin/attendance'}
+                  sx={selectedMenuItemStyle}
+                >
+                  <ListItemIcon>
+                    <NavIcon icon={AccessTimeIcon} label="Working Hours Tracking" sidebarOpen={sidebarOpen} />
+                  </ListItemIcon>
+                  {sidebarOpen && <ListItemText primary="Working Hours Tracking" />}
+                </ListItemButton>
+              </ListItem>
+            )}
           </>
         )}
 
-        {/* Product Research - visible to ProductAdmin or Superadmin */}
-        {isProductAdmin || isSuper ? (
+        {/* Product Research */}
+        {hp(P.PRODUCT_RESEARCH) ? (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -461,8 +453,8 @@ export default function AdminLayout({ user, onLogout }) {
               </ListItemButton>
             </ListItem>
 
-            {/* Listing Templates - Create/Edit Templates (Superadmin only) */}
-            {isSuper && (
+            {/* Listing Templates */}
+            {hp(P.MANAGE_TEMPLATES) && (
               <ListItem disablePadding>
                 <ListItemButton
                   component={Link}
@@ -479,8 +471,8 @@ export default function AdminLayout({ user, onLogout }) {
               </ListItem>
             )}
 
-            {/* Template Listings Database (Superadmin only) */}
-            {isSuper && (
+            {/* Template Listings Database */}
+            {hp(P.LISTINGS_DATABASE) && (
               <ListItem disablePadding>
                 <ListItemButton
                   component={Link}
@@ -499,8 +491,8 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         ) : null}
 
-        {/* Template Listings - Seller-based listing workflow (Superadmin + Listers) */}
-        {(isSuper || isAnyLister) && (
+        {/* Template Listings */}
+        {hp(P.ADD_TEMPLATE_LISTINGS) && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -517,8 +509,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         )}
 
-        {/* Continue with Product Features (Superadmin only) */}
-        {isSuper ? (
+        {/* Product Features */}
+        {hp(P.PRODUCT_UMBRELLAS, P.ASIN_STORAGE, P.ASIN_DIRECTORY, P.COLUMN_CREATOR) ? (
           <>
 
             {/* Product Umbrellas */}
@@ -587,8 +579,8 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         ) : null}
 
-        {/* Feed Upload - accessible to listers, listingadmins, and superadmins */}
-        {(isListingAdmin || isSuper || isLister) && (
+        {/* Feed Upload */}
+        {hp(P.FEED_UPLOAD) && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -606,7 +598,7 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
         {/* Listing Dropdown with Monitoring Subdropdown */}
-        {(isListingAdmin || isSuper) && (
+        {hp(P.LISTING_MANAGEMENT, P.SELLING_PRIVILEGES, P.EBAY_API_USAGE, P.TASK_LIST, P.ASSIGNMENTS) && (
           <>
 
             {/* Selling Privileges */}
@@ -846,7 +838,7 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
         {/* Compatibility Dropdown */}
-        {isSuper && (
+        {hp(P.COMPATIBILITY_TASKS, P.COMPATIBILITY_PROGRESS) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -912,7 +904,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {(isSuper || isCompatibilityAdmin || isCompatibilityEditor) && (
+        {hp(P.COMPATIBILITY_DASHBOARD, P.EDIT_LISTINGS) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -945,8 +937,8 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {/* Orders Dept Dropdown - UPDATED FOR HOC & COMPLIANCE MANAGER */}
-        {(isSuper || isFulfillmentAdmin || isHOC || isComplianceManager) && (
+        {/* Orders Dept Dropdown */}
+        {hp(P.ORDERS_DASHBOARD, P.FULFILLMENT, P.AWAITING_SHIPMENT, P.DISPUTES, P.ACCOUNT_HEALTH) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -1171,7 +1163,7 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
         {/* Manage Components Dropdown */}
-        {isSuper && (
+        {hp(P.MANAGE_CATEGORIES, P.MANAGE_PLATFORMS, P.MANAGE_STORES) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -1247,7 +1239,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {isProductAdmin ? (
+        {hp(P.MANAGE_CATEGORIES) && !hp(P.MANAGE_PLATFORMS, P.MANAGE_STORES) ? (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -1264,7 +1256,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         ) : null}
 
-        {isSuper || isListingAdmin || isHRAdmin || isOperationHead ? (
+        {hp(P.ADD_USER) ? (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -1279,7 +1271,7 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         ) : null}
 
-        {(isCompatibilityAdmin) && (
+        {hp(P.ADD_COMPATIBILITY_EDITOR) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -1320,7 +1312,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {(isCompatibilityEditor) && (
+        {hp(P.COMPATIBILITY_EDITOR) && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -1336,8 +1328,8 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
 
-        {/* Employee Management - visible to superadmin and hradmin only */}
-        {(isSuper || isHRAdmin) && (
+        {/* Employee Management */}
+        {hp(P.EMPLOYEE_MANAGEMENT) && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -1370,8 +1362,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItemButton>
         </ListItem>)}
 
-        {/* Leave Admin - visible to superadmin and hradmin only */}
-        {(isSuper || isHRAdmin) && (
+        {/* Leave Admin */}
+        {hp(P.LEAVE_ADMIN) && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -1388,8 +1380,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         )}
 
-        {/* [Testing]Employee Details - visible to superadmin, hradmin, and operation head */}
-        {(isSuper || isHRAdmin || isOperationHead) && (
+        {/* Employee Details */}
+        {hp(P.EMPLOYEE_DETAILS) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -1406,6 +1398,24 @@ export default function AdminLayout({ user, onLogout }) {
               </ListItemButton>
             </ListItem>
           </>
+        )}
+
+        {/* Manage Permissions - superadmin only */}
+        {isSuper && (
+          <ListItem disablePadding>
+            <ListItemButton
+              component={Link}
+              to="/admin/manage-permissions"
+              onClick={() => setMobileOpen(false)}
+              selected={location.pathname === '/admin/manage-permissions'}
+              sx={selectedMenuItemStyle}
+            >
+              <ListItemIcon>
+                <NavIcon icon={AdminPanelSettingsIcon} label="Manage Permissions" sidebarOpen={sidebarOpen} />
+              </ListItemIcon>
+              {sidebarOpen && <ListItemText primary="Manage Permissions" />}
+            </ListItemButton>
+          </ListItem>
         )}
 
       </List>
@@ -1495,154 +1505,105 @@ export default function AdminLayout({ user, onLogout }) {
           <Route path="/ideas" element={<IdeasPage />} />
 
           {!isSuper && <Route path="/about-me" element={<AboutMePage />} />}
-          {isProductAdmin || isSuper ? (
-            <>
-              <Route path="/research" element={<ProductResearchPage />} />
-              <Route path="/ranges" element={<ManageRangesPage />} />
-              <Route path="/categories" element={<ManageCategoriesPage />} />
-              <Route path="/amazon-lookup" element={<AmazonLookupPage />} />
-              <Route path="/product-umbrellas" element={<ManageProductUmbrellasPage />} />
-              <Route path="/asin-storage" element={<ASINStoragePage />} />
-              <Route path="/asin-directory" element={<AsinDirectoryPage />} />
-              <Route path="/column-creator" element={<ColumnCreatorPage />} />
-            </>
-          ) : null}
-          {isListingAdmin || isSuper ? (
-            <>
-              <Route path="/listing" element={<ListingManagementPage />} />
-              <Route path="/assignments" element={<AdminAssignmentsPage />} />
-              <Route path="/task-list" element={<TaskListPage />} />
-              <Route path="/listing-sheet" element={<ListingSheetPage />} />
-              <Route path="/store-wise-tasks" element={<StoreWiseTaskListPage />} />
-              <Route path="/store-wise-tasks/details" element={<StoreTaskDetailPage />} />
-              <Route path="/store-daily-tasks" element={<StoreDailyTasksPage />} />
-              <Route path="/lister-info" element={<ListerInfoPage />} />
-              <Route path="/lister-info/details" element={<ListerInfoDetailPage />} />
-              <Route path="/range-analyzer" element={<RangeAnalyzerPage />} />
-            </>
-          ) : null}
-          {isSuper || isListingAdmin || isHRAdmin || isOperationHead ? (
-            <Route path="/add-user" element={<AddListerPage />} />
-          ) : null}
-          {isSuper || isListingAdmin || isLister ? (
-            <Route path="/feed-upload" element={<FeedUploadPage />} />
-          ) : null}
-          {isSuper || isListingAdmin ? (
-            <>
-              <Route path="/platforms" element={<ManagePlatformsPage />} />
-              <Route path="/stores" element={<ManageStoresPage />} />
-              <Route path="/listings-summary" element={<ListingsSummaryPage />} />
-              <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />
-              <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />
-            </>
-          ) : null}
-          {isSuper && (
-            <>
-              <>
-                <Route path="/user-credentials" element={<UserCredentialsPage />} />
-                <Route path="/payoneer" element={<PayoneerSheetPage />} />
-                <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                <Route path="/transactions" element={<TransactionPage />} />
-                <Route path="/extra-expenses" element={<ExtraExpensePage />} />
-                <Route path="/manage-templates" element={<ManageTemplatesPage />} />
-                <Route path="/listings-database" element={<TemplateDatabasePage />} />
-              </>
-            </>
-          )}
-          {(isSuper || isAnyLister) && (
-            <>
-              <Route path="/template-listings" element={<TemplateListingsPage />} />
-              <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />
-              <Route path="/select-seller" element={<SelectSellerPage />} />
-              <Route path="/seller-templates" element={<SellerTemplatesPage />} />
-            </>
-          )}
-          {(isSuper || isHRAdmin || isOperationHead) && (
-            <Route path="/employee-details" element={<EmployeeDetailsPage />} />
-          )}
-          {(isSuper || isHRAdmin) && (
-            <Route path="/employee-management" element={<EmployeeManagementPage />} />
-          )}
+          {/* Product Research & Management */}
+          {hp(P.PRODUCT_RESEARCH) && <Route path="/research" element={<ProductResearchPage />} />}
+          {hp(P.MANAGE_RANGES) && <Route path="/ranges" element={<ManageRangesPage />} />}
+          {hp(P.MANAGE_CATEGORIES) && <Route path="/categories" element={<ManageCategoriesPage />} />}
+          {hp(P.AMAZON_LOOKUP) && <Route path="/amazon-lookup" element={<AmazonLookupPage />} />}
+          {hp(P.PRODUCT_UMBRELLAS) && <Route path="/product-umbrellas" element={<ManageProductUmbrellasPage />} />}
+          {hp(P.ASIN_STORAGE) && <Route path="/asin-storage" element={<ASINStoragePage />} />}
+          {hp(P.ASIN_DIRECTORY) && <Route path="/asin-directory" element={<AsinDirectoryPage />} />}
+          {hp(P.COLUMN_CREATOR) && <Route path="/column-creator" element={<ColumnCreatorPage />} />}
+
+          {/* Listing Management */}
+          {hp(P.LISTING_MANAGEMENT) && <Route path="/listing" element={<ListingManagementPage />} />}
+          {hp(P.ASSIGNMENTS) && <Route path="/assignments" element={<AdminAssignmentsPage />} />}
+          {hp(P.TASK_LIST) && <Route path="/task-list" element={<TaskListPage />} />}
+          {hp(P.LISTING_SHEET) && <Route path="/listing-sheet" element={<ListingSheetPage />} />}
+          {hp(P.STORE_WISE_TASKS) && <Route path="/store-wise-tasks" element={<StoreWiseTaskListPage />} />}
+          {hp(P.STORE_WISE_TASKS) && <Route path="/store-wise-tasks/details" element={<StoreTaskDetailPage />} />}
+          {hp(P.STORE_DAILY_TASKS) && <Route path="/store-daily-tasks" element={<StoreDailyTasksPage />} />}
+          {hp(P.LISTER_INFO) && <Route path="/lister-info" element={<ListerInfoPage />} />}
+          {hp(P.LISTER_INFO) && <Route path="/lister-info/details" element={<ListerInfoDetailPage />} />}
+          {hp(P.RANGE_ANALYZER) && <Route path="/range-analyzer" element={<RangeAnalyzerPage />} />}
+          {hp(P.ADD_USER) && <Route path="/add-user" element={<AddListerPage />} />}
+          {hp(P.FEED_UPLOAD) && <Route path="/feed-upload" element={<FeedUploadPage />} />}
+          {hp(P.MANAGE_PLATFORMS) && <Route path="/platforms" element={<ManagePlatformsPage />} />}
+          {hp(P.MANAGE_STORES) && <Route path="/stores" element={<ManageStoresPage />} />}
+          {hp(P.LISTINGS_SUMMARY) && <Route path="/listings-summary" element={<ListingsSummaryPage />} />}
+          {hp(P.SELLING_PRIVILEGES) && <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />}
+          {hp(P.EBAY_API_USAGE) && <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />}
+
+          {/* Finance & Admin */}
+          {hp(P.USER_CREDENTIALS) && <Route path="/user-credentials" element={<UserCredentialsPage />} />}
+          {hp(P.PAYONEER_SHEET) && <Route path="/payoneer" element={<PayoneerSheetPage />} />}
+          {hp(P.BANK_ACCOUNTS) && <Route path="/bank-accounts" element={<BankAccountsPage />} />}
+          {hp(P.TRANSACTIONS) && <Route path="/transactions" element={<TransactionPage />} />}
+          {hp(P.EXTRA_EXPENSES) && <Route path="/extra-expenses" element={<ExtraExpensePage />} />}
+          {hp(P.MANAGE_TEMPLATES) && <Route path="/manage-templates" element={<ManageTemplatesPage />} />}
+          {hp(P.LISTINGS_DATABASE) && <Route path="/listings-database" element={<TemplateDatabasePage />} />}
+
+          {/* Template Listings */}
+          {hp(P.TEMPLATE_LISTINGS) && <Route path="/template-listings" element={<TemplateListingsPage />} />}
+          {hp(P.TEMPLATE_LISTING_ANALYTICS) && <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />}
+          {hp(P.SELECT_SELLER) && <Route path="/select-seller" element={<SelectSellerPage />} />}
+          {hp(P.SELLER_TEMPLATES) && <Route path="/seller-templates" element={<SellerTemplatesPage />} />}
+
+          {/* HR & Employee */}
+          {hp(P.EMPLOYEE_DETAILS) && <Route path="/employee-details" element={<EmployeeDetailsPage />} />}
+          {hp(P.EMPLOYEE_MANAGEMENT) && <Route path="/employee-management" element={<EmployeeManagementPage />} />}
 
           {/* Leave Management - accessible to ALL authenticated users */}
           <Route path="/my-leaves" element={<LeaveManagementPage />} />
+          {hp(P.LEAVE_ADMIN) && <Route path="/leave-admin" element={<LeaveAdminPage />} />}
 
-          {/* Leave Admin - accessible to superadmin and hradmin only */}
-          {(isSuper || isHRAdmin) && (
-            <Route path="/leave-admin" element={<LeaveAdminPage />} />
-          )}
+          {/* Compatibility */}
+          {hp(P.ADD_COMPATIBILITY_EDITOR) && <Route path="/add-compatibility-editor" element={<AddListerPage />} />}
+          {hp(P.COMPATIBILITY_TASKS) && <Route path="/compatibility-tasks" element={<AdminTaskList />} />}
+          {hp(P.COMPATIBILITY_PROGRESS) && <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />}
+          {hp(P.COMPATIBILITY_EDITOR) && <Route path="/compatibility-editor" element={<EditorDashboard />} />}
+          {hp(P.COMPATIBILITY_DASHBOARD) && <Route path="/compatibility-dashboard" element={<CompatibilityDashboard />} />}
+          {hp(P.EDIT_LISTINGS) && <Route path="/edit-listings" element={<EditListingsDashboard />} />}
 
-          {isCompatibilityAdmin && (
-            <>
-              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
-              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
-              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
-            </>
-          )}
-          {(isSuper || isCompatibilityAdmin) && (
-            <>
-              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
-              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
-              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
-            </>
-          )}
-          {isCompatibilityEditor && (
-            <Route path="/compatibility-editor" element={<EditorDashboard />} />
-          )}
-
-          {(isSuper || isCompatibilityAdmin || isCompatibilityEditor) && (
-            <>
-              <Route path="/compatibility-dashboard" element={<CompatibilityDashboard />} />
-              <Route path="/edit-listings" element={<EditListingsDashboard />} />
-            </>
-          )}
-
-          {/* UPDATED ROUTES FOR ORDERS DEPT */}
-          {(isFulfillmentAdmin || isSuper || isHOC || isComplianceManager) && (
-            <>
-              <Route path="/orders-dashboard" element={<OrdersDepartmentDashboardPage />} />
-              <Route path="/order-analytics" element={<OrderAnalyticsPage />} />
-              <Route path="/worksheet" element={<DisputesPage initialTab={4} />} />
-              <Route path="/seller-analytics" element={<SellerAnalyticsPage />} />
-              <Route path="/fulfillment" element={<FulfillmentDashboard />} />
-              <Route path="/all-orders-sheet" element={<AllOrdersSheetPage />} />
-              <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />
-              <Route path="/awaiting-sheet" element={<AwaitingSheetPage />} />
-              <Route path="/amazon-arrivals" element={<AmazonArrivalsPage />} />
-              <Route path="/fulfillment-notes" element={<FulfillmentNotesPage />} />
-              <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />
-              <Route path="/cancelled-status" element={<DisputesPage initialTab={3} />} />
-              <Route path="/return-requested" element={<DisputesPage initialTab={2} />} />
-              <Route path="/disputes" element={<DisputesPage />} />
-              <Route path="/account-health" element={<AccountHealthReportPage />} />
-              <Route path="/message-received" element={<BuyerChatPage />} />
-              <Route path="/conversation-management" element={<ConversationManagementPage />} />
-              <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />
-              <Route path="/credit-cards" element={<ManageCreditCardsPage />} />
-              <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />
-            </>
-          )}
+          {/* Orders & Fulfillment */}
+          {hp(P.ORDERS_DASHBOARD) && <Route path="/orders-dashboard" element={<OrdersDepartmentDashboardPage />} />}
+          {hp(P.ORDER_ANALYTICS) && <Route path="/order-analytics" element={<OrderAnalyticsPage />} />}
+          {hp(P.DISPUTES) && <Route path="/worksheet" element={<DisputesPage initialTab={4} />} />}
+          {hp(P.SELLER_ANALYTICS) && <Route path="/seller-analytics" element={<SellerAnalyticsPage />} />}
+          {hp(P.FULFILLMENT) && <Route path="/fulfillment" element={<FulfillmentDashboard />} />}
+          {hp(P.ALL_ORDERS_SHEET) && <Route path="/all-orders-sheet" element={<AllOrdersSheetPage />} />}
+          {hp(P.AWAITING_SHIPMENT) && <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />}
+          {hp(P.AWAITING_SHEET) && <Route path="/awaiting-sheet" element={<AwaitingSheetPage />} />}
+          {hp(P.AMAZON_ARRIVALS) && <Route path="/amazon-arrivals" element={<AmazonArrivalsPage />} />}
+          {hp(P.FULFILLMENT_NOTES) && <Route path="/fulfillment-notes" element={<FulfillmentNotesPage />} />}
+          {hp(P.CONVERSATION_TRACKING) && <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />}
+          {hp(P.DISPUTES) && <Route path="/cancelled-status" element={<DisputesPage initialTab={3} />} />}
+          {hp(P.DISPUTES) && <Route path="/return-requested" element={<DisputesPage initialTab={2} />} />}
+          {hp(P.DISPUTES) && <Route path="/disputes" element={<DisputesPage />} />}
+          {hp(P.ACCOUNT_HEALTH) && <Route path="/account-health" element={<AccountHealthReportPage />} />}
+          {hp(P.BUYER_MESSAGES) && <Route path="/message-received" element={<BuyerChatPage />} />}
+          {hp(P.CONVERSATION_MANAGEMENT) && <Route path="/conversation-management" element={<ConversationManagementPage />} />}
+          {hp(P.AMAZON_ACCOUNTS) && <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />}
+          {hp(P.CREDIT_CARDS) && <Route path="/credit-cards" element={<ManageCreditCardsPage />} />}
+          {hp(P.CREDIT_CARD_NAMES) && <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />}
 
           {/* Internal Messages - accessible to ALL authenticated users */}
           <Route path="/internal-messages" element={<InternalMessagesPage />} />
+          {hp(P.VIEW_ALL_MESSAGES) && <Route path="/internal-messages-admin" element={<InternalMessagesAdminPage />} />}
+          {hp(P.WORKING_HOURS_TRACKING) && <Route path="/attendance" element={<AttendanceAdminPage />} />}
 
-          {/* Internal Messages Admin - accessible to superadmin only */}
-          {isSuper && (
-            <>
-              <Route path="/internal-messages-admin" element={<InternalMessagesAdminPage />} />
-              <Route path="/attendance" element={<AttendanceAdminPage />} />
-            </>
-          )}
+          {/* Manage Permissions - superadmin only */}
+          {isSuper && <Route path="/manage-permissions" element={<ManagePermissionsPage />} />}
 
-          {/* UPDATED DEFAULT REDIRECT */}
+          {/* Default redirect based on permissions */}
           <Route path="*" element={<Navigate to={
-            isProductAdmin || isSuper ? "/admin/research" :
-              isListingAdmin ? "/admin/listing" :
-                isCompatibilityAdmin ? "/admin/compatibility-tasks" :
-                  isCompatibilityEditor ? "/admin/compatibility-editor" :
-                    (isFulfillmentAdmin || isHOC || isComplianceManager) ? "/admin/fulfillment" :
-                      isHRAdmin || isOperationHead ? "/admin/employee-details" :
-                        "/admin/about-me"
+            hp(P.PRODUCT_RESEARCH) ? "/admin/research" :
+              hp(P.LISTING_MANAGEMENT) ? "/admin/listing" :
+                hp(P.COMPATIBILITY_TASKS) ? "/admin/compatibility-tasks" :
+                  hp(P.COMPATIBILITY_EDITOR) ? "/admin/compatibility-editor" :
+                    hp(P.FULFILLMENT) ? "/admin/fulfillment" :
+                      hp(P.EMPLOYEE_DETAILS) ? "/admin/employee-details" :
+                        "/admin/ideas"
           } replace />} />
         </Routes>
       </Box>
