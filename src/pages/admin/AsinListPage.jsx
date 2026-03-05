@@ -24,7 +24,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Divider
+  Divider,
+  Chip
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -34,9 +35,11 @@ import {
 } from '@mui/icons-material';
 import api, { getAuthToken } from '../../lib/api.js';
 import AsinReviewModal from '../../components/AsinReviewModal.jsx';
+import { useNavigate } from 'react-router-dom';
 import AsinListCreateDialog from '../../components/AsinListCreateDialog.jsx';
 
 export default function AsinListPage() {
+  const navigate = useNavigate();
   // ── Taxonomy dropdowns ──────────────────────────────────────────────────────
   const [categories, setCategories] = useState([]);
   const [ranges, setRanges] = useState([]);
@@ -279,13 +282,10 @@ export default function AsinListPage() {
         listings,
         options: { skipDuplicates: true }
       });
-      setSuccess(
-        `Bulk save completed: ${data.created} created, ${data.updated || 0} updated, ` +
-        `${data.reactivated || 0} reactivated, ${data.failed} failed, ${data.skipped} skipped`
-      );
       setReviewModal(false);
       setPreviewItems([]);
       setSelected([]);
+      navigate(`/admin/template-listings?templateId=${activeTemplate._id}&sellerId=${activeSellerId}&fromAsinList=true`);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save listings');
     }
@@ -586,11 +586,14 @@ export default function AsinListPage() {
                           </Typography>
                         </TableCell>
 
-                        {/* Count — row number placeholder */}
+                        {/* Count — total times this ASIN has been listed */}
                         <TableCell align="center">
-                          <Typography variant="body2">
-                            {page * rowsPerPage + idx + 1}
-                          </Typography>
+                          <Chip
+                            label={asin.listingCount || 0}
+                            size="small"
+                            color={asin.listingCount > 0 ? 'primary' : 'default'}
+                            variant={asin.listingCount > 0 ? 'filled' : 'outlined'}
+                          />
                         </TableCell>
 
                         {/* Orders — placeholder */}

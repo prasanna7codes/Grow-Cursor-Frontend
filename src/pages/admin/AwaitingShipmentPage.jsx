@@ -38,6 +38,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import InfoIcon from '@mui/icons-material/Info';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import api from '../../lib/api';
 import ColumnSelector from '../../components/ColumnSelector';
 import ChatModal from '../../components/ChatModal';
@@ -380,6 +382,7 @@ function ManualTrackingCell({ order, onSaved, onCopy, onNotify }) {
                           <MenuItem value="FEDEX">FedEx</MenuItem>
                           <MenuItem value="DHL">DHL</MenuItem>
                           <MenuItem value="AUSTRALIA_POST">AU Post</MenuItem>
+                          <MenuItem value="AUSTRALIA_POST_GLOBAL">AU Post Global</MenuItem>
                           <MenuItem value="OTHER">Other</MenuItem>
                         </Select>
                       </FormControl>
@@ -404,6 +407,7 @@ function ManualTrackingCell({ order, onSaved, onCopy, onNotify }) {
                 <MenuItem value="FEDEX">FedEx</MenuItem>
                 <MenuItem value="DHL">DHL</MenuItem>
                 <MenuItem value="AUSTRALIA_POST">Australia Post</MenuItem>
+                <MenuItem value="AUSTRALIA_POST_GLOBAL">Australia Post Global</MenuItem>
                 <MenuItem value="OTHER">Other</MenuItem>
               </Select>
             </FormControl>
@@ -448,6 +452,10 @@ export default function AwaitingShipmentPage() {
   const [remarkTemplates, setRemarkTemplates] = useState([]);
   const [manageRemarkTemplatesOpen, setManageRemarkTemplatesOpen] = useState(false);
 
+  // Arrival Date Editing State
+  const [editingArrivalDate, setEditingArrivalDate] = useState({});
+  const [savingArrivalDateId, setSavingArrivalDateId] = useState(null);
+
   // Pagination State
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -461,9 +469,11 @@ export default function AwaitingShipmentPage() {
   const [searchMarketplace, setSearchMarketplace] = useState('');
   const [shipByDate, setShipByDate] = useState('');
   const [dateSold, setDateSold] = useState('');
+  const [arrivalDateFrom, setArrivalDateFrom] = useState('');
+  const [arrivalDateTo, setArrivalDateTo] = useState('');
 
   const [visibleColumns, setVisibleColumns] = useState([
-    'seller', 'orderId', 'marketplace', 'dateSold', 'shipBy', 'deliveryDate', 'productName', 'buyerName', 'shippingAddress', 'trackingNumber', 'trackingId', 'notes'
+    'seller', 'orderId', 'marketplace', 'dateSold', 'shipBy', 'deliveryDate', 'productName', 'buyerName', 'shippingAddress', 'trackingNumber', 'trackingId', 'arriving', 'notes'
   ]); // Default specific to Awaiting Shipment needs, or use ALL_COLUMNS.map(c => c.id)
 
   const formatCurrency = (value) => {
@@ -528,7 +538,7 @@ export default function AwaitingShipmentPage() {
   useEffect(() => {
     fetchAwaitingOrders();
     // eslint-disable-next-line
-  }, [page, debouncedOrderId, debouncedBuyerName, selectedSeller, searchMarketplace, shipByDate, dateSold]);
+  }, [page, debouncedOrderId, debouncedBuyerName, selectedSeller, searchMarketplace, shipByDate, dateSold, arrivalDateFrom, arrivalDateTo]);
 
   // Handlers
   const handleSellerChange = (e) => {
@@ -545,6 +555,8 @@ export default function AwaitingShipmentPage() {
     setSearchMarketplace('');
     setShipByDate('');
     setDateSold('');
+    setArrivalDateFrom('');
+    setArrivalDateTo('');
     setPage(1);
   };
 
@@ -565,6 +577,8 @@ export default function AwaitingShipmentPage() {
       if (searchMarketplace) params.searchMarketplace = searchMarketplace;
       if (shipByDate) params.shipByDate = shipByDate;
       if (dateSold) params.dateSold = dateSold;
+      if (arrivalDateFrom) params.arrivalDateFrom = arrivalDateFrom;
+      if (arrivalDateTo) params.arrivalDateTo = arrivalDateTo;
 
       // SMART CHECK: If params haven't changed since last fetch, STOP.
       const paramsString = JSON.stringify(params);
@@ -712,6 +726,60 @@ export default function AwaitingShipmentPage() {
     if (updated) showSnack('success', '✅ Remark updated');
   };
 
+  // --- Arrival Date helpers ---
+  const startEditArrivalDate = (orderId, currentDate) => {
+    setEditingArrivalDate(prev => ({ ...prev, [orderId]: (currentDate || '').slice(0, 10) }));
+  };
+
+  const cancelEditArrivalDate = (orderId) => {
+    setEditingArrivalDate(prev => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+  };
+
+  const saveArrivalDate = async (order) => {
+    const nextDate = editingArrivalDate[order._id];
+    const currentDate = (order.arrivingDate || '').slice(0, 10);
+    if (!nextDate || nextDate === currentDate) {
+      cancelEditArrivalDate(order._id);
+      return;
+    }
+    setSavingArrivalDateId(order._id);
+    try {
+      await api.patch(`/ebay/orders/${order._id}/manual-fields`, { arrivingDate: nextDate });
+      setOrders(prev => prev.map(o => o._id === order._id ? { ...o, arrivingDate: nextDate } : o));
+      showSnack('success', 'Arrival date updated');
+      cancelEditArrivalDate(order._id);
+    } catch (err) {
+      showSnack('error', 'Failed to update arrival date');
+    } finally {
+      setSavingArrivalDateId(null);
+    }
+  };
+
+  const formatArrivingDate = (dateStr) => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return 'No Date';
+    try {
+      const date = new Date(dateStr + 'T00:00:00');
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch { return dateStr; }
+  };
+
+  const getArrivalDateColor = (dateStr) => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return 'default';
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const arrival = new Date(dateStr + 'T00:00:00');
+      const diffDays = Math.ceil((arrival - today) / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) return 'error';
+      if (diffDays <= 2) return 'warning';
+      return 'success';
+    } catch { return 'default'; }
+  };
+
   const toggleShippingExpanded = (orderId) => {
     setExpandedShipping(prev => ({
       ...prev,
@@ -839,13 +907,54 @@ export default function AwaitingShipmentPage() {
         return <Typography variant="body2">{maxPart || '-'}</Typography>;
       }
       case 'arriving': {
-        if (!order.arrivingDate) return '-';
-        // Format from YYYY-MM-DD to D/M/YYYY to match Fulfillment Dashboard display
-        const parts = order.arrivingDate.split('-');
-        if (parts.length === 3) {
-          return `${parseInt(parts[2])}/${parseInt(parts[1])}/${parts[0]}`;
-        }
-        return order.arrivingDate;
+        return editingArrivalDate[order._id] !== undefined ? (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <TextField
+              type="date"
+              size="small"
+              value={editingArrivalDate[order._id]}
+              onChange={(e) =>
+                setEditingArrivalDate(prev => ({ ...prev, [order._id]: e.target.value }))
+              }
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 145 }}
+            />
+            <IconButton
+              size="small"
+              color="success"
+              disabled={savingArrivalDateId === order._id}
+              onClick={() => saveArrivalDate(order)}
+            >
+              <CheckIcon sx={{ fontSize: '1rem' }} />
+            </IconButton>
+            <IconButton
+              size="small"
+              color="inherit"
+              disabled={savingArrivalDateId === order._id}
+              onClick={() => cancelEditArrivalDate(order._id)}
+            >
+              <CloseIcon sx={{ fontSize: '1rem' }} />
+            </IconButton>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Chip
+              label={formatArrivingDate(order.arrivingDate)}
+              size="small"
+              color={getArrivalDateColor(order.arrivingDate)}
+              sx={{ fontWeight: 600 }}
+            />
+            <Tooltip title="Edit arrival date">
+              <IconButton
+                size="small"
+                onClick={() => startEditArrivalDate(order._id, order.arrivingDate)}
+                sx={{ p: 0.5 }}
+              >
+                <EditIcon sx={{ fontSize: '0.95rem' }} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        );
       }
       case 'productName':
         return (
@@ -1133,6 +1242,34 @@ export default function AwaitingShipmentPage() {
               value={dateSold}
               onChange={(e) => {
                 setDateSold(e.target.value);
+                setPage(1);
+              }}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 160 }}
+            />
+
+            {/* 7. ARRIVAL DATE FROM FILTER */}
+            <TextField
+              type="date"
+              size="small"
+              label="Arrival From"
+              value={arrivalDateFrom}
+              onChange={(e) => {
+                setArrivalDateFrom(e.target.value);
+                setPage(1);
+              }}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 160 }}
+            />
+
+            {/* 8. ARRIVAL DATE TO FILTER */}
+            <TextField
+              type="date"
+              size="small"
+              label="Arrival To"
+              value={arrivalDateTo}
+              onChange={(e) => {
+                setArrivalDateTo(e.target.value);
                 setPage(1);
               }}
               InputLabelProps={{ shrink: true }}

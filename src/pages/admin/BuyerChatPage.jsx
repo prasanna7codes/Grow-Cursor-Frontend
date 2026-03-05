@@ -217,8 +217,8 @@ export default function BuyerChatPage() {
   }
 
   async function handleSaveMeta() {
-    if (!metaCategory || !metaCaseStatus) {
-      alert("Please select both 'About' and 'Status' fields.");
+    if (!metaCaseStatus) {
+      alert("Please select a 'Status' field.");
       return;
     }
 
@@ -423,6 +423,7 @@ export default function BuyerChatPage() {
   async function loadThreads(reset = false) {
     if (loadingThreads) return;
     setLoadingThreads(true);
+    if (reset) setThreads([]); // Clear immediately so stale results don't show during load
 
     try {
       const currentPage = reset ? 1 : page;
@@ -907,6 +908,8 @@ export default function BuyerChatPage() {
                       </Badge>
                     </ListItemAvatar>
                     <ListItemText
+                      primaryTypographyProps={{ component: 'div' }}
+                      secondaryTypographyProps={{ component: 'div' }}
                       primary={
                         <Stack direction="row" justifyContent="space-between">
                           <Typography variant="subtitle2" noWrap sx={{ maxWidth: 140, fontWeight: 'bold' }}>
@@ -1070,18 +1073,22 @@ export default function BuyerChatPage() {
                         '& .MuiInputBase-root': { height: { xs: 40, sm: 32 } }
                       }}
                     >
-                      <InputLabel sx={{ fontSize: '0.8rem' }}>About</InputLabel>
+                      <InputLabel shrink sx={{ fontSize: '0.8rem' }}>About</InputLabel>
                       <Select
                         value={metaCategory}
                         label="About"
+                        displayEmpty
+                        notched
                         onChange={(e) => setMetaCategory(e.target.value)}
                         sx={{ fontSize: '0.8rem' }}
+                        renderValue={(selected) => selected ? selected : <em style={{ color: '#999', fontSize: '0.8rem' }}>— Not a Case —</em>}
                       >
+                        <MenuItem value=""><em>— Not a Case —</em></MenuItem>
                         <MenuItem value="INR">INR</MenuItem>
                         <MenuItem value="Cancellation">Cancellation</MenuItem>
-                        <ListSubheader sx={{ fontSize: '0.75rem', lineHeight: '2.2rem', color: 'text.secondary', fontWeight: 'bold' }}>Return</ListSubheader>
-                        <MenuItem value="Return - Refund" sx={{ pl: 3 }}>↳ Refund</MenuItem>
-                        <MenuItem value="Return - Replace" sx={{ pl: 3 }}>↳ Replace</MenuItem>
+                        <MenuItem value="Return">Return</MenuItem>
+                        <MenuItem value="Refund">Refund</MenuItem>
+                        <MenuItem value="Replace">Replace</MenuItem>
                         <MenuItem value="Out of Stock">Out of Stock</MenuItem>
                         <MenuItem value="Issue with Product">Issue with Product</MenuItem>
                         <MenuItem value="Inquiry">Inquiry</MenuItem>
@@ -1104,6 +1111,7 @@ export default function BuyerChatPage() {
                         onChange={(e) => setMetaCaseStatus(e.target.value)}
                         sx={{ fontSize: '0.8rem' }}
                       >
+                        <MenuItem value="Case Not Opened">Case Not Opened</MenuItem>
                         <MenuItem value="Open">Open</MenuItem>
                         <MenuItem value="In Progress">In Progress</MenuItem>
                         <MenuItem value="Resolved">Resolved</MenuItem>

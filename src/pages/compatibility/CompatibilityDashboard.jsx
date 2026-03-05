@@ -4,8 +4,10 @@ import {
   Button, Typography, CircularProgress, Dialog, DialogTitle, DialogContent,
   DialogActions, IconButton, TextField, Grid, Chip, Divider, FormControl,
   InputLabel, Select, MenuItem, Snackbar, Alert, Pagination, OutlinedInput, Checkbox, ListItemText,
-  Autocomplete, InputAdornment, Tooltip, Switch, FormControlLabel
+  Autocomplete, InputAdornment, Tooltip, Switch, FormControlLabel, Collapse
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
@@ -13,6 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import api from '../../lib/api';
@@ -90,20 +93,166 @@ export default function CompatibilityDashboard() {
   const [makeOptions, setMakeOptions] = useState([]);
   const [modelOptions, setModelOptions] = useState([]);
   const [yearOptions, setYearOptions] = useState([]); // Dynamic Years
+  const [trimsByYear, setTrimsByYear] = useState({}); // { "2023": ["Trim1", "Trim2"], ... }
 
   const [loadingMakes, setLoadingMakes] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingYears, setLoadingYears] = useState(false);
+  const [loadingTrims, setLoadingTrims] = useState(false);
 
   // Selection
   const [selectedMake, setSelectedMake] = useState(null);
   const [selectedModel, setSelectedModel] = useState(null);
   const [selectedYears, setSelectedYears] = useState([]);
+  const [selectedTrimsByYear, setSelectedTrimsByYear] = useState({}); // { "2023": ["Trim1"], ... }
+  const [expandedYears, setExpandedYears] = useState({});
   const [startYear, setStartYear] = useState('');
   const [endYear, setEndYear] = useState('');
   const [newNotes, setNewNotes] = useState('');
   const [pageInputValue, setPageInputValue] = useState('');
   const [filterNoFitment, setFilterNoFitment] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  // BULK AI SUGGEST STATE
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  // bulkQueue entries: { item, status: 'loading'|'ready'|'no-match'|'error',
+  //   aiData, modelOptions, yearOptions, trimsByYear, selectedYears, modelExists, yearsExist, error }
+  const [bulkQueue, setBulkQueue] = useState([]);
+  const [bulkQueueIdx, setBulkQueueIdx] = useState(0);
+  const [bulkMode, setBulkMode] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Normalize a model string for fuzzy comparison:
+  // strips dashes, spaces, dots and lowercases → "F-150" and "F150" both become "f150"
+  // ---------------------------------------------------------------------------
+  const normModel = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const fuzzyMatchModel = (aiModel, options) => {
+    if (!aiModel || !options?.length) return null;
+    if (options.includes(aiModel)) return aiModel;
+    const normAi = normModel(aiModel);
+    return options.find(opt => normModel(opt) === normAi) || null;
+  };
+
+  // Common shorthand → eBay canonical Make names
+  const MAKE_ALIASES = {
+    'chevy': 'Chevrolet',
+    'chev': 'Chevrolet',
+    'vw': 'Volkswagen',
+    'volkswagon': 'Volkswagen', // common misspelling
+    'merc': 'Mercury',
+    'benz': 'Mercedes-Benz',
+    'mercedes': 'Mercedes-Benz',
+    'alfa': 'Alfa Romeo',
+    'land rover': 'Land Rover',
+    'landrover': 'Land Rover',
+    'range rover': 'Land Rover',
+  };
+  // Returns the canonical Make name — resolves aliases first, then falls back to raw AI value
+  const resolveMake = (aiMake) => {
+    if (!aiMake) return aiMake;
+    const lower = aiMake.trim().toLowerCase();
+    return MAKE_ALIASES[lower] || aiMake;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Normalize AI make and model values to match database conventions
+  // ---------------------------------------------------------------------------
+  const resolveModel = (aiMake, aiModel) => {
+    if (!aiModel) return aiModel;
+    const makeLower = (aiMake || '').toLowerCase();
+    const modelLower = aiModel.toLowerCase();
+
+    // Honda + Prologue EV → Prologue
+    if (makeLower === 'honda' && modelLower.includes('prologue')) {
+      return 'Prologue';
+    }
+
+    // Honda + Fit Jazz → Fit
+    if (makeLower === 'honda' && modelLower.includes('fit')) {
+      return 'Fit';
+    }
+
+    // Ram + Classic 1500 → Classic
+    if (makeLower === 'ram' && modelLower.includes('classic')) {
+      return 'Classic';
+    }
+
+    // Tesla + Model 3 → 3, Tesla + Model Y → Y
+    if (makeLower === 'tesla') {
+      if (/model\s*3/i.test(aiModel)) return '3';
+      if (/model\s*y/i.test(aiModel)) return 'Y';
+    }
+
+    // Jeep + Wrangler JS → Wrangler
+    if (makeLower === 'jeep' && /wrangler\s+j[a-z]/i.test(aiModel)) {
+      return 'Wrangler';
+    }
+
+    // Toyota + Land Cruiser Prado 250 → Land Cruiser
+    if (makeLower === 'toyota' && modelLower.includes('land cruiser')) {
+      return 'Land Cruiser';
+    }
+
+    // Model normalization: silverado → silverado 1500
+    if (modelLower.includes('silverado') && !modelLower.includes('1500')) {
+      return 'Silverado 1500';
+    }
+
+    // Special case: BMW 3 Series → 330i
+    if (makeLower === 'bmw' && modelLower.includes('3 series')) {
+      return '330i';
+    }
+
+    return aiModel;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Year-dependent model resolution (must be called after resolveModel, before eBay lookup)
+  // Uses the AI-suggested years to pick the correct model variant.
+  // ---------------------------------------------------------------------------
+  const resolveModelWithYear = (make, model, startYear, endYear) => {
+    const makeLower = (make || '').toLowerCase();
+    const modelNorm = (model || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Ford + F-250: before 1999 → "F-250", 1999 and after → "F-250 Super Duty"
+    if (makeLower === 'ford' && modelNorm === 'f250') {
+      const end = Number(endYear);
+      if (end && end < 1999) return 'F-250';
+      return 'F-250 Super Duty';
+    }
+
+    return model;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Clamp AI year ranges to known valid ranges for specific make/model combos
+  // ---------------------------------------------------------------------------
+  const clampYearRange = (make, model, startYear, endYear) => {
+    if (!startYear || !endYear) return { startYear, endYear };
+    const makeLower = (make || '').toLowerCase();
+    const modelLower = (model || '').toLowerCase();
+    let start = Number(startYear);
+    let end = Number(endYear);
+
+    // Dodge + Ram 1500 → restrict to 1994-2014
+    if (makeLower === 'dodge' && /ram\s*1500/i.test(model)) {
+      if (start < 1994) start = 1994;
+      if (end > 2014) end = 2014;
+      return { startYear: String(start), endYear: String(end) };
+    }
+
+    // Ram + 1500/2500/3500 → restrict to 2011-2026
+    if (makeLower === 'ram') {
+      const numMatch = model.match(/(\d{4})/);
+      if (numMatch && Number(numMatch[1]) >= 1500) {
+        if (start < 2011) start = 2011;
+        if (end > 2026) end = 2026;
+        return { startYear: String(start), endYear: String(end) };
+      }
+    }
+
+    return { startYear, endYear };
+  };
 
   const displayedListings = filterNoFitment
     ? listings.filter(item => !item.compatibility || item.compatibility.length === 0)
@@ -145,6 +294,9 @@ export default function CompatibilityDashboard() {
         setSelectedMake(null);
         setSelectedModel(null);
         setSelectedYears([]);
+        setSelectedTrimsByYear({});
+        setTrimsByYear({});
+        setExpandedYears({});
         setStartYear('');
         setEndYear('');
         setNewNotes('');
@@ -156,6 +308,9 @@ export default function CompatibilityDashboard() {
         setSelectedMake(null);
         setSelectedModel(null);
         setSelectedYears([]);
+        setSelectedTrimsByYear({});
+        setTrimsByYear({});
+        setExpandedYears({});
         setStartYear('');
         setEndYear('');
         setNewNotes('');
@@ -184,13 +339,15 @@ export default function CompatibilityDashboard() {
         params: {
           sellerId: currentSellerId,
           page,
-          limit: 50,
+          limit: 100,
           search: searchToSend
         }
       });
       setListings(data.listings);
       setTotalPages(data.pagination.pages);
       setTotalItems(data.pagination.total);
+      // Clear selections when new page loads
+      setSelectedIds(new Set());
     } catch (e) { showSnackbar('Failed to load listings', 'error'); }
     finally { setLoading(false); }
   };
@@ -234,6 +391,9 @@ export default function CompatibilityDashboard() {
     setSelectedModel(null);
     setYearOptions([]);
     setSelectedYears([]);
+    setTrimsByYear({});
+    setSelectedTrimsByYear({});
+    setExpandedYears({});
     try {
       const { data } = await api.post('/ebay/compatibility/values', {
         sellerId: currentSellerId,
@@ -268,34 +428,470 @@ export default function CompatibilityDashboard() {
     finally { setLoadingYears(false); }
   };
 
+  const fetchTrims = async (makeVal, modelVal, years) => {
+    if (!makeVal || !modelVal || !years || years.length === 0) {
+      setTrimsByYear({});
+      setSelectedTrimsByYear({});
+      return;
+    }
+    setLoadingTrims(true);
+    setTrimsByYear({});
+    setSelectedTrimsByYear({});
+    try {
+      // Step 1: Fetch trim names for each year in parallel
+      const trimPromises = years.map(year =>
+        api.post('/ebay/compatibility/values', {
+          sellerId: currentSellerId,
+          propertyName: 'Trim',
+          constraints: [
+            { name: 'Make', value: makeVal },
+            { name: 'Model', value: modelVal },
+            { name: 'Year', value: year }
+          ]
+        }).then(res => ({ year, trims: (res.data.values || []).sort() })).catch(() => ({ year, trims: [] }))
+      );
+      const trimResults = await Promise.all(trimPromises);
+
+      // Step 2: For each (year, trim), fetch Engine values in parallel
+      const enginePromises = [];
+      trimResults.forEach(({ year, trims }) => {
+        trims.forEach(trim => {
+          enginePromises.push(
+            api.post('/ebay/compatibility/values', {
+              sellerId: currentSellerId,
+              propertyName: 'Engine',
+              constraints: [
+                { name: 'Make', value: makeVal },
+                { name: 'Model', value: modelVal },
+                { name: 'Year', value: year },
+                { name: 'Trim', value: trim }
+              ]
+            }).then(res => ({ year, trim, engines: res.data.values || [] })).catch(() => ({ year, trim, engines: [] }))
+          );
+        });
+      });
+      const engineResults = await Promise.all(enginePromises);
+
+      // Step 3: Build trimsByYear as { year: [{ trim, engine }, ...] }
+      const byYear = {};
+      engineResults.forEach(({ year, trim, engines }) => {
+        if (!byYear[year]) byYear[year] = [];
+        if (engines.length > 0) {
+          engines.forEach(engine => byYear[year].push({ trim, engine }));
+        } else {
+          byYear[year].push({ trim, engine: '' });
+        }
+      });
+      // Sort each year's entries by trim then engine
+      Object.keys(byYear).forEach(y => {
+        byYear[y].sort((a, b) => a.trim.localeCompare(b.trim) || a.engine.localeCompare(b.engine));
+      });
+      setTrimsByYear(byYear);
+      // Auto-expand all years
+      const expanded = {};
+      Object.keys(byYear).forEach(y => { expanded[y] = true; });
+      setExpandedYears(expanded);
+    } catch (e) { console.error(e); }
+    finally { setLoadingTrims(false); }
+  };
+
+  // --- AI SUGGEST FITMENT ---
+  const handleAiSuggest = async () => {
+    if (!selectedItem) return;
+    setAiLoading(true);
+    setLoadingModels(true);
+    try {
+      const { data } = await api.post('/ai/suggest-fitment', {
+        title: selectedItem.title || '',
+        description: selectedItem.descriptionPreview || ''
+      });
+      if (!data.make) {
+        showSnackbar('AI could not extract fitment info from this listing', 'warning');
+        return;
+      }
+      // Step 1: Resolve Make alias (Chevy→Chevrolet etc.) then fetch models
+      const resolvedMake = resolveMake(data.make);
+      const resolvedModelStep1 = resolveModel(resolvedMake, data.model); // Apply model normalization
+      const resolvedModelInput = resolveModelWithYear(resolvedMake, resolvedModelStep1, data.startYear, data.endYear); // year-aware model fix
+      setSelectedMake(resolvedMake);
+      setModelOptions([]);
+      setSelectedModel(null);
+      setYearOptions([]);
+      setSelectedYears([]);
+      setTrimsByYear({});
+      setSelectedTrimsByYear({});
+      setExpandedYears({});
+
+      const modelsRes = await api.post('/ebay/compatibility/values', {
+        sellerId: currentSellerId,
+        propertyName: 'Model',
+        constraints: [{ name: 'Make', value: resolvedMake }]
+      });
+      const modelOpts = modelsRes.data.values || [];
+      setModelOptions(modelOpts);
+      setLoadingModels(false);
+
+      // Fuzzy-match the AI model against eBay's list (handles F150 ↔ F-150 etc.)
+      const resolvedModel = fuzzyMatchModel(resolvedModelInput, modelOpts);
+      if (!resolvedModel) {
+        showSnackbar(`AI suggested model "${data.model}" not found in eBay DB for ${resolvedMake}. Please select manually.`, 'warning');
+        return;
+      }
+
+      // Step 2: Set resolved (canonical) model and fetch years
+      setSelectedModel(resolvedModel);
+      setLoadingYears(true);
+      setYearOptions([]);
+      setSelectedYears([]);
+      try {
+        const yearsRes = await api.post('/ebay/compatibility/values', {
+          sellerId: currentSellerId,
+          propertyName: 'Year',
+          constraints: [
+            { name: 'Make', value: resolvedMake },
+            { name: 'Model', value: resolvedModel }
+          ]
+        });
+        const yearList = (yearsRes.data.values || [])
+          .map(y => String(y))
+          .sort((a, b) => Number(b) - Number(a));
+        setYearOptions(yearList);
+        // Step 3: Apply year range — use eBay-validated subset, NOT raw AI years
+        if (data.startYear && data.endYear) {
+          const clamped = clampYearRange(resolvedMake, resolvedModel, data.startYear, data.endYear);
+          const startNum = Number(clamped.startYear);
+          const endNum = Number(clamped.endYear);
+          const min = Math.min(startNum, endNum);
+          const max = Math.max(startNum, endNum);
+          const range = yearList.filter(y => Number(y) >= min && Number(y) <= max);
+          setSelectedYears(range);
+          if (range.length > 0) {
+            const rangeNums = range.map(Number);
+            setStartYear(String(Math.min(...rangeNums)));
+            setEndYear(String(Math.max(...rangeNums)));
+          } else {
+            setStartYear(data.startYear);
+            setEndYear(data.endYear);
+            showSnackbar(`AI suggested ${data.make} ${resolvedModel} (${data.startYear}–${data.endYear}) but those years aren't in eBay's DB for this model. Please select years manually.`, 'warning');
+            return;
+          }
+        }
+      } finally {
+        setLoadingYears(false);
+      }
+      showSnackbar(`AI suggested: ${data.make} ${resolvedModel === data.model ? resolvedModel : `${resolvedModel} (matched from "${data.model}")`} — years verified in eBay DB`, 'success');
+    } catch (e) {
+      showSnackbar('AI suggestion failed: ' + (e.response?.data?.error || e.message), 'error');
+    } finally {
+      setLoadingModels(false);
+      setAiLoading(false);
+    }
+  };
+  // --- BULK AI SUGGEST ---
+
+  const handleBulkAiSuggest = async () => {
+    const selectedItems = displayedListings.filter(item => selectedIds.has(item.itemId));
+    if (selectedItems.length === 0) return;
+
+    // Build initial queue (all loading)
+    const initial = selectedItems.map(item => ({
+      item, status: 'loading', aiData: null,
+      modelOptions: [], yearOptions: [], trimsByYear: {}, selectedYears: [],
+      modelExists: true, yearsExist: true, error: null
+    }));
+    setBulkQueue(initial);
+    setBulkQueueIdx(0);
+    setBulkMode(true);
+    setSelectedIds(new Set()); // deselect all checkboxes once queue is running
+
+    // Open Edit modal immediately on first item (shows loading state)
+    const firstItem = selectedItems[0];
+    const firstIdx = listings.findIndex(l => l.itemId === firstItem.itemId);
+    setSelectedItem(firstItem);
+    setCurrentListingIndex(firstIdx >= 0 ? firstIdx : 0);
+    setEditCompatList(JSON.parse(JSON.stringify(firstItem.compatibility || [])));
+    setOpenModal(true);
+    setSelectedMake(null); setSelectedModel(null);
+    setSelectedYears([]); setSelectedTrimsByYear({});
+    setTrimsByYear({}); setYearOptions([]); setModelOptions([]);
+    setExpandedYears({}); setStartYear(''); setEndYear(''); setNewNotes('');
+    fetchMakes();
+
+    // Fire AI + full data fetch for EVERY selected item in parallel
+    selectedItems.forEach((item, idx) => {
+      api.post('/ai/suggest-fitment', {
+        title: item.title || '',
+        description: item.descriptionPreview || ''
+      }).then(async ({ data }) => {
+        if (!data.make) {
+          setBulkQueue(prev => {
+            const u = [...prev];
+            u[idx] = { ...u[idx], status: 'no-match', error: 'AI could not extract fitment info' };
+            return u;
+          });
+          return;
+        }
+
+        // Fetch models, years and trims all in background
+        let modelOpts = [], yearOpts = [], resolvedYears = [], trimsByYearResult = {};
+        let modelExists = true, yearsExist = true;
+        const resolvedMake = resolveMake(data.make); // Chevy→Chevrolet etc.
+        const resolvedModelStep1 = resolveModel(resolvedMake, data.model); // Apply model normalization
+        const resolvedModelInput = resolveModelWithYear(resolvedMake, resolvedModelStep1, data.startYear, data.endYear); // year-aware model fix
+        let canonicalModel = resolvedModelInput; // hoisted — updated inside try if fuzzy match succeeds
+        try {
+          // 1. Models — use resolved make (alias-corrected)
+          const modelsRes = await api.post('/ebay/compatibility/values', {
+            sellerId: currentSellerId,
+            propertyName: 'Model',
+            constraints: [{ name: 'Make', value: resolvedMake }]
+          });
+          modelOpts = modelsRes.data.values || [];
+          const resolvedModel = fuzzyMatchModel(resolvedModelInput, modelOpts);
+          modelExists = !!resolvedModel;
+          canonicalModel = resolvedModel || resolvedModelInput;
+
+          // 2. Years — use resolved make + canonical model
+          const yearsRes = await api.post('/ebay/compatibility/values', {
+            sellerId: currentSellerId,
+            propertyName: 'Year',
+            constraints: [{ name: 'Make', value: resolvedMake }, { name: 'Model', value: canonicalModel }]
+          });
+          yearOpts = (yearsRes.data.values || []).map(y => String(y)).sort((a, b) => Number(b) - Number(a));
+          if (data.startYear && data.endYear) {
+            const clamped = clampYearRange(resolvedMake, canonicalModel, data.startYear, data.endYear);
+            const min = Math.min(Number(clamped.startYear), Number(clamped.endYear));
+            const max = Math.max(Number(clamped.startYear), Number(clamped.endYear));
+            resolvedYears = yearOpts.filter(y => Number(y) >= min && Number(y) <= max);
+          }
+          yearsExist = resolvedYears.length > 0;
+
+          // 3. Trims for all resolved years (parallel) — use canonical model name
+          if (resolvedYears.length > 0) {
+            const trimPromises = resolvedYears.map(year =>
+              api.post('/ebay/compatibility/values', {
+                sellerId: currentSellerId, propertyName: 'Trim',
+                constraints: [{ name: 'Make', value: resolvedMake }, { name: 'Model', value: canonicalModel }, { name: 'Year', value: year }]
+              }).then(r => ({ year, trims: (r.data.values || []).sort() })).catch(() => ({ year, trims: [] }))
+            );
+            const trimResults = await Promise.all(trimPromises);
+
+            // 4. Engines for each trim (parallel)
+            const enginePromises = [];
+            trimResults.forEach(({ year, trims }) => {
+              trims.forEach(trim => {
+                enginePromises.push(
+                  api.post('/ebay/compatibility/values', {
+                    sellerId: currentSellerId, propertyName: 'Engine',
+                    constraints: [
+                      { name: 'Make', value: resolvedMake }, { name: 'Model', value: canonicalModel },
+                      { name: 'Year', value: year }, { name: 'Trim', value: trim }
+                    ]
+                  }).then(r => ({ year, trim, engines: r.data.values || [] })).catch(() => ({ year, trim, engines: [] }))
+                );
+              });
+            });
+            const engineResults = await Promise.all(enginePromises);
+
+            const byYear = {};
+            engineResults.forEach(({ year, trim, engines }) => {
+              if (!byYear[year]) byYear[year] = [];
+              if (engines.length > 0) engines.forEach(engine => byYear[year].push({ trim, engine }));
+              else byYear[year].push({ trim, engine: '' });
+            });
+            Object.keys(byYear).forEach(y => {
+              byYear[y].sort((a, b) => a.trim.localeCompare(b.trim) || a.engine.localeCompare(b.engine));
+            });
+            trimsByYearResult = byYear;
+          }
+        } catch (fetchErr) {
+          console.error('[Bulk AI] Compat data fetch error:', fetchErr);
+        }
+
+        setBulkQueue(prev => {
+          const u = [...prev];
+          u[idx] = {
+            ...u[idx], status: 'ready',
+            aiData: { ...data, make: resolvedMake, model: canonicalModel }, // store canonical make+model
+            modelOptions: modelOpts, yearOptions: yearOpts,
+            trimsByYear: trimsByYearResult, selectedYears: resolvedYears,
+            modelExists, yearsExist, error: null
+          };
+          return u;
+        });
+      }).catch(err => {
+        setBulkQueue(prev => {
+          const u = [...prev];
+          u[idx] = { ...u[idx], status: 'error', error: err.response?.data?.error || err.message || 'AI failed' };
+          return u;
+        });
+      });
+    });
+  };
+
+  // Apply current bulk queue item data to modal state whenever it's ready
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!bulkMode || !openModal) return;
+    const entry = bulkQueue[bulkQueueIdx];
+    if (!entry) return;
+
+    // Always update the modal's item
+    setSelectedItem(entry.item);
+    setEditCompatList(JSON.parse(JSON.stringify(entry.item.compatibility || [])));
+    const newIdx = listings.findIndex(l => l.itemId === entry.item.itemId);
+    setCurrentListingIndex(newIdx >= 0 ? newIdx : 0);
+
+    if (entry.status === 'ready' && entry.aiData) {
+      setSelectedMake(entry.aiData.make);
+      setSelectedModel(entry.aiData.model);
+      // Use eBay-validated year range (min/max of resolvedYears), NOT raw AI output.
+      // e.g. AI says 2019-2025 but eBay only has [2025] → show 2025-2025, not 2019-2025.
+      const resolvedYears = entry.selectedYears || [];
+      if (resolvedYears.length > 0) {
+        const nums = resolvedYears.map(Number);
+        setStartYear(String(Math.min(...nums)));
+        setEndYear(String(Math.max(...nums)));
+      } else {
+        setStartYear(entry.aiData.startYear || '');
+        setEndYear(entry.aiData.endYear || '');
+      }
+      setModelOptions(entry.modelOptions || []);
+      setYearOptions(entry.yearOptions || []);
+      setSelectedYears(resolvedYears);
+      setTrimsByYear(entry.trimsByYear || {});
+      setSelectedTrimsByYear({});
+      const expanded = {};
+      Object.keys(entry.trimsByYear || {}).forEach(y => { expanded[y] = true; });
+      setExpandedYears(expanded);
+      setNewNotes('');
+    } else if (entry.status !== 'loading') {
+      // no-match or error — reset fields so user can fill manually
+      setSelectedMake(null); setSelectedModel(null);
+      setSelectedYears([]); setSelectedTrimsByYear({});
+      setTrimsByYear({}); setYearOptions([]); setModelOptions([]);
+      setExpandedYears({}); setStartYear(''); setEndYear(''); setNewNotes('');
+    }
+  }, [bulkQueueIdx, bulkQueue, bulkMode, openModal]);
+
+  // Advance to next item in queue (or close modal)
+  const handleBulkQueueNext = (skip = false) => {
+    const nextIdx = bulkQueueIdx + 1;
+    if (nextIdx >= bulkQueue.length) {
+      // Finished queue
+      setBulkMode(false);
+      setBulkQueue([]);
+      setOpenModal(false);
+      showSnackbar('All bulk items processed!', 'success');
+    } else {
+      setBulkQueueIdx(nextIdx);
+    }
+  };
+
+  // Go back to previous item in queue
+  const handleBulkQueuePrevious = () => {
+    if (bulkQueueIdx > 0) {
+      setBulkQueueIdx(bulkQueueIdx - 1);
+    }
+  };
+
+  // Open Edit modal pre-filled from a bulk result (kept for compatibility)
+  const handleInspectItem = (result) => {
+    const idx = listings.findIndex(l => l.itemId === result.item.itemId);
+    handleEditClick(result.item, idx >= 0 ? idx : 0, result.aiData);
+  };
+
   // --- HANDLERS ---
 
-  const handleEditClick = (item, index) => {
+  // Auto-fetch trims when selected years change
+  useEffect(() => {
+    if (selectedMake && selectedModel && selectedYears.length > 0) {
+      fetchTrims(selectedMake, selectedModel, selectedYears);
+    } else {
+      setTrimsByYear({});
+      setSelectedTrimsByYear({});
+    }
+  }, [selectedYears, selectedMake, selectedModel]);
+
+  const handleEditClick = (item, index, prefillAiData = null) => {
     setSelectedItem(item);
     setCurrentListingIndex(index);
     setEditCompatList(JSON.parse(JSON.stringify(item.compatibility || [])));
     setOpenModal(true);
-    setSelectedMake(null);
-    setSelectedModel(null);
-    setSelectedYears([]);
-    setStartYear('');
-    setEndYear('');
+    setTrimsByYear({});
+    setExpandedYears({});
     setNewNotes('');
     fetchMakes();
+    // Reset bulk mode when opening manually
+    setBulkMode(false);
+    setBulkQueue([]);
+    setBulkQueueIdx(0);
+
+    if (prefillAiData && prefillAiData.make) {
+      setSelectedMake(prefillAiData.make);
+      setSelectedModel(prefillAiData.model || null);
+      setStartYear(prefillAiData.startYear || '');
+      setEndYear(prefillAiData.endYear || '');
+      api.post('/ebay/compatibility/values', {
+        sellerId: currentSellerId,
+        propertyName: 'Model',
+        constraints: [{ name: 'Make', value: prefillAiData.make }]
+      }).then(r => setModelOptions(r.data.values || [])).catch(() => { });
+      if (prefillAiData.model) {
+        setLoadingYears(true);
+        api.post('/ebay/compatibility/values', {
+          sellerId: currentSellerId,
+          propertyName: 'Year',
+          constraints: [
+            { name: 'Make', value: prefillAiData.make },
+            { name: 'Model', value: prefillAiData.model }
+          ]
+        }).then(r => {
+          const yearList = (r.data.values || []).map(y => String(y)).sort((a, b) => Number(b) - Number(a));
+          setYearOptions(yearList);
+          if (prefillAiData.startYear && prefillAiData.endYear) {
+            const min = Math.min(Number(prefillAiData.startYear), Number(prefillAiData.endYear));
+            const max = Math.max(Number(prefillAiData.startYear), Number(prefillAiData.endYear));
+            setSelectedYears(yearList.filter(y => Number(y) >= min && Number(y) <= max));
+          }
+        }).catch(() => { }).finally(() => setLoadingYears(false));
+      } else {
+        setSelectedYears([]); setYearOptions([]);
+      }
+    } else {
+      setSelectedMake(null); setSelectedModel(null);
+      setSelectedYears([]); setSelectedTrimsByYear({});
+      setYearOptions([]); setModelOptions([]);
+      setStartYear(''); setEndYear('');
+    }
   };
+
+  // Helper to create a unique key for a trim+engine entry
+  const trimKey = (entry) => `${entry.trim}|||${entry.engine}`;
 
   const handleAddVehicle = () => {
     if (!selectedMake || !selectedModel || selectedYears.length === 0) return;
-    const newEntries = selectedYears.map(year => ({
-      notes: newNotes,
-      nameValueList: [
-        { name: 'Year', value: year },
-        { name: 'Make', value: selectedMake },
-        { name: 'Model', value: selectedModel }
-      ]
-    }));
+    const newEntries = [];
+    // Check if any trims are selected across any year
+    const hasAnyTrimsSelected = Object.values(selectedTrimsByYear).some(arr => arr && arr.length > 0);
+    for (const year of selectedYears) {
+      const yearEntries = (hasAnyTrimsSelected && selectedTrimsByYear[year]?.length > 0) ? selectedTrimsByYear[year] : [null];
+      for (const entry of yearEntries) {
+        const nameValueList = [
+          { name: 'Year', value: year },
+          { name: 'Make', value: selectedMake },
+          { name: 'Model', value: selectedModel }
+        ];
+        if (entry) {
+          nameValueList.push({ name: 'Trim', value: entry.trim });
+          if (entry.engine) nameValueList.push({ name: 'Engine', value: entry.engine });
+        }
+        newEntries.push({ notes: newNotes, nameValueList });
+      }
+    }
     setEditCompatList([...newEntries, ...editCompatList]);
     setSelectedYears([]);
+    setSelectedTrimsByYear({});
     setStartYear('');
     setEndYear('');
     setNewNotes('');
@@ -424,6 +1020,9 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
       // Save current item first without closing modal
       await handleSaveCompatibility(false);
 
+      // Track save-and-next action (hadData = compatibility list is non-empty)
+      api.post('/ai/track-save-next', { hadData: editCompatList.length > 0 }).catch(() => {});
+
       // Check if there's a next item on current page
       if (currentListingIndex < listings.length - 1) {
         const nextItem = listings[currentListingIndex + 1];
@@ -433,6 +1032,9 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
         setSelectedMake(null);
         setSelectedModel(null);
         setSelectedYears([]);
+        setSelectedTrimsByYear({});
+        setTrimsByYear({});
+        setExpandedYears({});
         setStartYear('');
         setEndYear('');
         setNewNotes('');
@@ -460,6 +1062,9 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
       setSelectedMake(null);
       setSelectedModel(null);
       setSelectedYears([]);
+      setSelectedTrimsByYear({});
+      setTrimsByYear({});
+      setExpandedYears({});
       setStartYear('');
       setEndYear('');
       setNewNotes('');
@@ -479,6 +1084,9 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
       setSelectedMake(null);
       setSelectedModel(null);
       setSelectedYears([]);
+      setSelectedTrimsByYear({});
+      setTrimsByYear({});
+      setExpandedYears({});
       setStartYear('');
       setEndYear('');
       setNewNotes('');
@@ -612,10 +1220,52 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
       {/* TABLE */}
       {loading ? <Box display="flex" justifyContent="center" mt={5}><CircularProgress /></Box> : (
         <>
-          <TableContainer component={Paper}>
-            <Table>
+          {/* Bulk select toolbar */}
+          {selectedIds.size > 0 && (
+            <Box sx={{
+              mb: 1, display: 'flex', alignItems: 'center', gap: 2,
+              p: 1.5, bgcolor: '#f0f4ff', borderRadius: 1, border: '1px solid #c7d7fd'
+            }}>
+              <Typography variant="body2" fontWeight={600}>
+                {selectedIds.size} item{selectedIds.size > 1 ? 's' : ''} selected
+              </Typography>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AutoAwesomeIcon sx={{ fontSize: 16 }} />}
+                onClick={handleBulkAiSuggest}
+                sx={{ bgcolor: '#7c3aed', '&:hover': { bgcolor: '#6d28d9' }, fontWeight: 600 }}
+              >
+                ✨ AI Suggest Selected ({selectedIds.size})
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear Selection
+              </Button>
+            </Box>
+          )}
+          <TableContainer component={Paper} sx={{ maxHeight: 'calc(100vh - 260px)', overflow: 'auto' }}>
+            <Table stickyHeader>
               <TableHead sx={{ bgcolor: '#f5f5f5' }}>
                 <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={displayedListings.length > 0 && displayedListings.every(l => selectedIds.has(l.itemId))}
+                      indeterminate={selectedIds.size > 0 && !displayedListings.every(l => selectedIds.has(l.itemId))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(new Set(displayedListings.map(l => l.itemId)));
+                        } else {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                      title="Select all on this page"
+                    />
+                  </TableCell>
                   <TableCell width="80">Image</TableCell>
                   <TableCell width="25%">Title & SKU</TableCell>
                   <TableCell>Price</TableCell>
@@ -627,8 +1277,23 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
               <TableBody>
                 {displayedListings.map((item, index) => {
                   const fitmentSummary = groupFitmentData(item.compatibility);
+                  const isSelected = selectedIds.has(item.itemId);
                   return (
-                    <TableRow key={item.itemId}>
+                    <TableRow key={item.itemId} selected={isSelected} hover>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(item.itemId);
+                              else next.delete(item.itemId);
+                              return next;
+                            });
+                          }}
+                        />
+                      </TableCell>
                       <TableCell>{item.mainImageUrl && <img src={item.mainImageUrl} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4 }} />}</TableCell>
                       <TableCell>
                         <Typography variant="subtitle2" sx={{ lineHeight: 1.2, mb: 0.5 }}>{item.title}</Typography>
@@ -661,7 +1326,10 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
               </TableBody>
             </Table>
           </TableContainer>
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2 }}>
+            <Typography variant="body2" color="textSecondary">
+              Showing {displayedListings.length}{filterNoFitment ? ' (filtered)' : ` of ${totalItems}`} listings
+            </Typography>
             <Pagination count={totalPages} page={page} onChange={(e, v) => setPage(v)} color="primary" showFirstButton showLastButton />
           </Box>
         </>
@@ -680,6 +1348,41 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
       >
         <DialogTitle sx={{ borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
           <Box>
+            {bulkMode && (
+              <Box sx={{ mb: 1 }}>
+                {/* Queue progress bar */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <AutoAwesomeIcon sx={{ fontSize: 14, color: '#7c3aed' }} />
+                  <Typography variant="caption" fontWeight={700} sx={{ color: '#7c3aed' }}>
+                    Bulk AI Queue — Item {bulkQueueIdx + 1} of {bulkQueue.length}
+                  </Typography>
+                  {bulkQueue[bulkQueueIdx]?.status === 'loading' && (
+                    <><CircularProgress size={11} sx={{ color: '#7c3aed', ml: 0.5 }} />
+                      <Typography variant="caption" color="textSecondary">AI analyzing...</Typography></>
+                  )}
+                  {bulkQueue[bulkQueueIdx]?.status === 'no-match' && (
+                    <Chip label="⚠️ No fitment found — fill manually" color="warning" size="small" />
+                  )}
+                  {bulkQueue[bulkQueueIdx]?.status === 'error' && (
+                    <Chip label={`❌ ${bulkQueue[bulkQueueIdx]?.error}`} color="error" size="small" />
+                  )}
+                </Box>
+                {/* Validation warnings */}
+                {bulkQueue[bulkQueueIdx]?.status === 'ready' && (
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    {!bulkQueue[bulkQueueIdx]?.modelExists && (
+                      <Chip label={`⚠️ Model "${bulkQueue[bulkQueueIdx]?.aiData?.model}" not in eBay DB`} color="warning" size="small" />
+                    )}
+                    {!bulkQueue[bulkQueueIdx]?.yearsExist && (
+                      <Chip label={`⚠️ Years ${bulkQueue[bulkQueueIdx]?.aiData?.startYear}–${bulkQueue[bulkQueueIdx]?.aiData?.endYear} not in eBay DB`} color="warning" size="small" />
+                    )}
+                    {bulkQueue[bulkQueueIdx]?.modelExists && bulkQueue[bulkQueueIdx]?.yearsExist && (
+                      <Chip label="✅ Make / Model / Years verified in eBay DB" color="success" size="small" />
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
             <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 0.5, fontSize: '1.3rem' }}>
               {selectedItem?.title}
             </Typography>
@@ -699,7 +1402,7 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Typography variant="caption" sx={{ mr: 1 }}>
-              {(page - 1) * 50 + currentListingIndex + 1} / {totalItems}
+              {(page - 1) * 100 + currentListingIndex + 1} / {totalItems}
             </Typography>
             <IconButton
               size="small"
@@ -757,30 +1460,83 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
               Compatible Vehicles ({editCompatList.length})
             </Typography>
 
+            {/* AI SUGGEST BUTTON */}
+            <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={aiLoading ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeIcon sx={{ fontSize: 16 }} />}
+                onClick={handleAiSuggest}
+                disabled={aiLoading}
+                sx={{
+                  borderColor: '#7c3aed',
+                  color: '#7c3aed',
+                  '&:hover': { borderColor: '#6d28d9', bgcolor: '#f5f3ff' },
+                  fontWeight: 600,
+                  fontSize: '0.78rem'
+                }}
+              >
+                {aiLoading ? 'Analyzing...' : '✨ AI Suggest'}
+              </Button>
+              <Typography variant="caption" color="textSecondary">
+                Auto-fills Make, Model &amp; Year range from listing title/description
+              </Typography>
+            </Box>
+
             <Grid container spacing={2} alignItems="flex-start" sx={{ mb: 2 }}>
               {/* MAKE */}
-              <Grid item xs={2}>
+              <Grid item xs={3}>
                 <Autocomplete
                   options={makeOptions}
                   value={selectedMake}
-                  onChange={(e, val) => { setSelectedMake(val); if (val) fetchModels(val); }}
+                  onChange={(e, val) => { 
+                    setSelectedMake(val); 
+                    if (val) {
+                      fetchModels(val);
+                    } else {
+                      // Reset all dependent fields when make is cleared
+                      setModelOptions([]);
+                      setSelectedModel(null);
+                      setYearOptions([]);
+                      setSelectedYears([]);
+                      setTrimsByYear({});
+                      setSelectedTrimsByYear({});
+                      setExpandedYears({});
+                      setStartYear('');
+                      setEndYear('');
+                    }
+                  }}
                   loading={loadingMakes}
                   renderInput={(params) => <TextField {...params} label="Make" size="small" />}
                 />
               </Grid>
               {/* MODEL */}
-              <Grid item xs={2}>
+              <Grid item xs={3}>
                 <Autocomplete
                   options={modelOptions}
                   value={selectedModel}
-                  onChange={(e, val) => { setSelectedModel(val); if (val) fetchYears(selectedMake, val); }}
+                  onChange={(e, val) => { 
+                    setSelectedModel(val); 
+                    if (val) { 
+                      fetchYears(selectedMake, val); 
+                    } else { 
+                      // Reset all dependent fields when model is cleared
+                      setYearOptions([]);
+                      setSelectedYears([]);
+                      setTrimsByYear({}); 
+                      setSelectedTrimsByYear({}); 
+                      setExpandedYears({});
+                      setStartYear('');
+                      setEndYear('');
+                    } 
+                  }}
                   loading={loadingModels}
                   disabled={!selectedMake}
                   renderInput={(params) => <TextField {...params} label="Model" size="small" />}
                 />
               </Grid>
               {/* YEAR RANGE SELECTOR */}
-              <Grid item xs={5}>
+              <Grid item xs={6}>
                 <Box>
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                     <Autocomplete
@@ -865,6 +1621,148 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
                   )}
                 </Box>
               </Grid>
+              {/* TRIM + ENGINE PER-YEAR SECTIONS */}
+              {selectedModel && Object.keys(trimsByYear).length > 0 && (() => {
+                const totalTrims = Object.values(trimsByYear).reduce((sum, arr) => sum + arr.length, 0);
+                const totalSelected = Object.values(selectedTrimsByYear).reduce((sum, arr) => sum + (arr?.length || 0), 0);
+                const allSelected = totalSelected === totalTrims && totalTrims > 0;
+                return (
+                  <Grid item xs={12}>
+                    <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
+                      {/* Header */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid #e0e0e0' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Checkbox
+                            size="small"
+                            checked={allSelected}
+                            indeterminate={totalSelected > 0 && !allSelected}
+                            onChange={() => {
+                              if (allSelected) {
+                                setSelectedTrimsByYear({});
+                              } else {
+                                const all = {};
+                                Object.entries(trimsByYear).forEach(([y, entries]) => { all[y] = [...entries]; });
+                                setSelectedTrimsByYear(all);
+                              }
+                            }}
+                          />
+                          <Typography variant="body2" fontWeight="bold">
+                            Select all {totalTrims} vehicle trims
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" color="textSecondary">
+                          {totalSelected} selected
+                        </Typography>
+                      </Box>
+                      {/* Year rows */}
+                      <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
+                        {selectedYears
+                          .sort((a, b) => Number(b) - Number(a))
+                          .filter(year => trimsByYear[year] && trimsByYear[year].length > 0)
+                          .map(year => {
+                            const yearEntries = trimsByYear[year] || [];
+                            const yearSelected = selectedTrimsByYear[year] || [];
+                            const yearSelectedKeys = new Set(yearSelected.map(trimKey));
+                            const isExpanded = expandedYears[year] || false;
+                            const allYearSelected = yearSelected.length === yearEntries.length && yearEntries.length > 0;
+                            return (
+                              <Box key={year}>
+                                {/* Year header row */}
+                                <Box
+                                  sx={{
+                                    display: 'flex', alignItems: 'center', px: 1.5, py: 1,
+                                    borderBottom: '1px solid #f0f0f0', cursor: 'pointer',
+                                    '&:hover': { bgcolor: '#f5f5f5' },
+                                    bgcolor: isExpanded ? '#f0f0f0' : 'transparent'
+                                  }}
+                                  onClick={() => setExpandedYears(prev => ({ ...prev, [year]: !prev[year] }))}
+                                >
+                                  <IconButton size="small" sx={{ mr: 0.5 }}>
+                                    {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                  </IconButton>
+                                  <Checkbox
+                                    size="small"
+                                    checked={allYearSelected}
+                                    indeterminate={yearSelected.length > 0 && !allYearSelected}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={() => {
+                                      setSelectedTrimsByYear(prev => ({
+                                        ...prev,
+                                        [year]: allYearSelected ? [] : [...yearEntries]
+                                      }));
+                                    }}
+                                    sx={{ mr: 1 }}
+                                  />
+                                  <Typography variant="body2" fontWeight="bold" sx={{ flex: 1 }}>
+                                    {selectedMake} {selectedModel} {year}
+                                  </Typography>
+                                  <Typography variant="caption" color="textSecondary">
+                                    {yearEntries.length} available
+                                  </Typography>
+                                </Box>
+                                {/* Expanded trim+engine table */}
+                                <Collapse in={isExpanded}>
+                                  <Box sx={{ pl: 5 }}>
+                                    {/* Table header */}
+                                    <Box sx={{ display: 'flex', borderBottom: '2px solid #e0e0e0', py: 0.5, px: 1 }}>
+                                      <Box sx={{ width: 40 }} />
+                                      <Typography variant="caption" fontWeight="bold" sx={{ flex: 1, color: '#555' }}>Trim</Typography>
+                                      <Typography variant="caption" fontWeight="bold" sx={{ flex: 1, color: '#555' }}>Engine</Typography>
+                                    </Box>
+                                    {yearEntries.map((entry, idx) => {
+                                      const key = trimKey(entry);
+                                      const isChecked = yearSelectedKeys.has(key);
+                                      return (
+                                        <Box
+                                          key={`${year}-${key}-${idx}`}
+                                          sx={{
+                                            display: 'flex', alignItems: 'center', py: 0.5, px: 1,
+                                            borderBottom: '1px solid #f5f5f5',
+                                            '&:hover': { bgcolor: '#f5f5f5' }
+                                          }}
+                                        >
+                                          <Checkbox
+                                            size="small"
+                                            checked={isChecked}
+                                            onChange={() => {
+                                              setSelectedTrimsByYear(prev => {
+                                                const current = prev[year] || [];
+                                                const currentKeys = new Set(current.map(trimKey));
+                                                const updated = currentKeys.has(key)
+                                                  ? current.filter(e => trimKey(e) !== key)
+                                                  : [...current, entry];
+                                                return { ...prev, [year]: updated };
+                                              });
+                                            }}
+                                            sx={{ mr: 1, p: 0.25 }}
+                                          />
+                                          <Typography variant="body2" sx={{ flex: 1, fontSize: '0.85rem' }}>
+                                            {entry.trim}
+                                          </Typography>
+                                          <Typography variant="body2" sx={{ flex: 1, fontSize: '0.8rem', color: '#666' }}>
+                                            {entry.engine || '—'}
+                                          </Typography>
+                                        </Box>
+                                      );
+                                    })}
+                                  </Box>
+                                </Collapse>
+                              </Box>
+                            );
+                          })}
+                      </Box>
+                    </Box>
+                  </Grid>
+                );
+              })()}
+              {loadingTrims && selectedModel && (
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={16} />
+                    <Typography variant="caption" color="textSecondary">Loading trims...</Typography>
+                  </Box>
+                </Grid>
+              )}
               <Grid item xs={2}><TextField label="Notes" size="small" value={newNotes} onChange={e => setNewNotes(e.target.value)} fullWidth /></Grid>
               <Grid item xs={1}><Button variant="contained" onClick={handleAddVehicle} sx={{ height: 40 }}><AddIcon /></Button></Grid>
             </Grid>
@@ -888,16 +1786,58 @@ Resets in: ${rateLimitInfo.hoursUntilReset} hour${rateLimitInfo.hoursUntilReset 
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenModal(false)}>Cancel</Button>
-          <Button onClick={() => handleSaveCompatibility(true)} variant="outlined" color="primary">Save</Button>
-          <Button
-            onClick={handleSaveAndNext}
-            variant="contained"
-            color="primary"
-            disabled={currentListingIndex >= listings.length - 1 && page >= totalPages}
-          >
-            Save and Go to Next
-          </Button>
+          <Button onClick={() => { setBulkMode(false); setBulkQueue([]); setOpenModal(false); }}>Cancel</Button>
+          {bulkMode ? (
+            <>
+              <Button
+                onClick={handleBulkQueuePrevious}
+                variant="outlined"
+                disabled={bulkQueueIdx === 0}
+              >
+                ← Previous
+              </Button>
+              <Button
+                onClick={() => handleBulkQueueNext(true)}
+                variant="outlined"
+                color="secondary"
+              >
+                Skip → ({bulkQueueIdx + 1}/{bulkQueue.length})
+              </Button>
+              <Button
+                onClick={() => handleSaveCompatibility(true)}
+                variant="outlined"
+                color="primary"
+                title="Save this item and stay on it"
+              >
+                Save (Stay)
+              </Button>
+              <Button
+                onClick={async () => {
+                  await handleSaveCompatibility(false);
+                  // Track save-and-next — hadData = user had entries in the compatibility list
+                  api.post('/ai/track-save-next', { hadData: editCompatList.length > 0 }).catch(() => {});
+                  handleBulkQueueNext(false);
+                }}
+                variant="contained"
+                color="primary"
+                disabled={bulkQueue[bulkQueueIdx]?.status === 'loading'}
+              >
+                Save & Next → ({bulkQueueIdx + 1}/{bulkQueue.length})
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => handleSaveCompatibility(true)} variant="outlined" color="primary">Save</Button>
+              <Button
+                onClick={handleSaveAndNext}
+                variant="contained"
+                color="primary"
+                disabled={currentListingIndex >= listings.length - 1 && page >= totalPages}
+              >
+                Save and Go to Next
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

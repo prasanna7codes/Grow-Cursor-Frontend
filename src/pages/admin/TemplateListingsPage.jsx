@@ -5,7 +5,7 @@ import {
   TableHead, TableRow, Typography, IconButton, Dialog, DialogTitle, 
   DialogContent, DialogActions, Alert, Pagination, TextField, Tabs, Tab, MenuItem,
   Chip, CircularProgress, Switch, FormControlLabel, LinearProgress, FormControl,
-  InputLabel, Select, Breadcrumbs, Link
+  InputLabel, Select, Breadcrumbs, Link, Checkbox
 } from '@mui/material';
 import { 
   Delete as DeleteIcon, 
@@ -30,6 +30,7 @@ import TemplateListingStatsCard from '../../components/TemplateListingStatsCard.
 import ActionFieldEditor from '../../components/ActionFieldEditor.jsx';
 import TemplateCustomizationDialog from '../../components/TemplateCustomizationDialog.jsx';
 import AsinReviewModal from '../../components/AsinReviewModal.jsx';
+import ListDirectlyDialog from '../../components/ListDirectlyDialog.jsx';
 import { parseAsins, getParsingStats, getValidationError } from '../../utils/asinParser.js';
 import { generateSKUFromASIN } from '../../utils/skuGenerator.js';
 
@@ -38,6 +39,7 @@ export default function TemplateListingsPage() {
   const navigate = useNavigate();
   const templateId = searchParams.get('templateId');
   const sellerId = searchParams.get('sellerId');
+  const fromAsinList = searchParams.get('fromAsinList') === 'true';
 
   const [template, setTemplate] = useState(null);
   const [listings, setListings] = useState([]);
@@ -86,6 +88,16 @@ export default function TemplateListingsPage() {
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [processingLog, setProcessingLog] = useState([]);
 
+  // Marketplace / region state (for ScraperAPI)
+  const [region, setRegion] = useState('US');
+
+  const MARKETPLACE_OPTIONS = [
+    { value: 'US', label: '🇺🇸 Amazon.com (US)' },
+    { value: 'UK', label: '🇬🇧 Amazon.co.uk (UK)' },
+    { value: 'CA', label: '🇨🇦 Amazon.ca (Canada)' },
+    { value: 'AU', label: '🇦🇺 Amazon.com.au (Australia)' },
+  ];
+
   // Core field defaults dialog state
   const [defaultsDialog, setDefaultsDialog] = useState(false);
   
@@ -95,6 +107,26 @@ export default function TemplateListingsPage() {
   // ASIN Review Modal state
   const [reviewModal, setReviewModal] = useState(false);
   const [previewItems, setPreviewItems] = useState([]);
+
+  // List Directly dialog state
+  const [listDirectlyDialog, setListDirectlyDialog] = useState(false);
+
+  // Row selection state
+  const [selectedListings, setSelectedListings] = useState(new Set());
+  const handleToggleSelect = (id) => {
+    setSelectedListings(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const handleToggleAll = () => {
+    if (selectedListings.size === listings.length) {
+      setSelectedListings(new Set());
+    } else {
+      setSelectedListings(new Set(listings.map(l => l._id)));
+    }
+  };
 
   const [listingFormData, setListingFormData] = useState({
     action: 'Add',
@@ -507,7 +539,8 @@ export default function TemplateListingsPage() {
     try {
       const { data } = await api.post('/template-listings/autofill-from-asin', {
         asin: asinInput.trim(),
-        templateId
+        templateId,
+        region
       });
 
       const { coreFields, customFields } = data.autoFilledData;
@@ -624,7 +657,7 @@ export default function TemplateListingsPage() {
       // Build SSE URL with auth token
       const asinParam = asins.join(',');
       const authToken = getAuthToken();
-      const sseUrl = `/template-listings/bulk-preview-stream?templateId=${templateId}&sellerId=${sellerId}&asins=${encodeURIComponent(asinParam)}&token=${encodeURIComponent(authToken)}`;
+      const sseUrl = `/template-listings/bulk-preview-stream?templateId=${templateId}&sellerId=${sellerId}&asins=${encodeURIComponent(asinParam)}&region=${encodeURIComponent(region)}&token=${encodeURIComponent(authToken)}`;
       
       // Create EventSource for SSE
       const eventSource = new EventSource(api.defaults.baseURL + sseUrl);
@@ -729,7 +762,8 @@ export default function TemplateListingsPage() {
     try {
       const { data } = await api.post('/template-listings/bulk-autofill-from-asins', {
         asins: [asin],
-        templateId
+        templateId,
+        region
       });
 
       if (data.results.length > 0) {
@@ -1121,16 +1155,40 @@ export default function TemplateListingsPage() {
             <Chip label="Customized" color="primary" size="small" />
           )}
         </Stack>
-        {sellerId && templateId && (
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<SettingsIcon />}
-            onClick={() => setCustomizationDialog(true)}
-          >
-            Customize Template
-          </Button>
-        )}
+        <Stack direction="row" spacing={1} alignItems="center">
+          {fromAsinList && (
+            <>
+              <Button variant="outlined" size="small" onClick={() => {}}>
+                Save As
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                color="primary"
+                onClick={() => {
+                  if (selectedListings.size === 0) {
+                    setError('Please select at least one listing to proceed.');
+                    return;
+                  }
+                  setListDirectlyDialog(true);
+                }}
+              >
+                List Directly ({selectedListings.size})
+              </Button>
+            </>
+          )}
+          {sellerId && templateId && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<SettingsIcon />}
+              onClick={fromAsinList ? undefined : () => setCustomizationDialog(true)}
+              disabled={fromAsinList}
+            >
+              Customize Template
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -1141,7 +1199,7 @@ export default function TemplateListingsPage() {
           variant="contained" 
           startIcon={<AddIcon />} 
           onClick={handleAddListing}
-          disabled={!sellerId || batchFilter !== 'active'}
+          disabled={!sellerId || batchFilter !== 'active' || fromAsinList}
         >
           Add Listing
         </Button>
@@ -1149,7 +1207,7 @@ export default function TemplateListingsPage() {
           variant="outlined" 
           startIcon={<UploadIcon />} 
           onClick={() => setBulkImportDialog(true)}
-          disabled={!sellerId || !templateId || batchFilter !== 'active'}
+          disabled={!sellerId || !templateId || batchFilter !== 'active' || fromAsinList}
         >
           Bulk Import ASINs
         </Button>
@@ -1157,7 +1215,7 @@ export default function TemplateListingsPage() {
           variant="outlined" 
           startIcon={<UploadIcon />} 
           onClick={() => setBulkImportSKUsDialog(true)}
-          disabled={!sellerId || !templateId || batchFilter !== 'active'}
+          disabled={!sellerId || !templateId || batchFilter !== 'active' || fromAsinList}
         >
           Bulk Import SKUs
         </Button>
@@ -1165,7 +1223,7 @@ export default function TemplateListingsPage() {
           variant="outlined" 
           color="success"
           onClick={() => setReactivateDialog(true)}
-          disabled={!sellerId || !templateId}
+          disabled={!sellerId || !templateId || fromAsinList}
         >
           Relist by SKU
         </Button>
@@ -1173,7 +1231,7 @@ export default function TemplateListingsPage() {
           variant="outlined" 
           color="error"
           onClick={() => setDeactivateDialog(true)}
-          disabled={!sellerId || !templateId}
+          disabled={!sellerId || !templateId || fromAsinList}
         >
           Deactivate by SKU
         </Button>
@@ -1186,15 +1244,15 @@ export default function TemplateListingsPage() {
         <Button
           variant="outlined"
           onClick={() => setHistoryDialog(true)}
-          disabled={downloadHistory.length === 0}
+          disabled={downloadHistory.length === 0 || fromAsinList}
         >
           Download History ({downloadHistory.length})
         </Button>
         <Button
           variant="outlined"
           startIcon={<CalculatorIcon />}
-          onClick={() => setCalculatorDialog(true)}
-          disabled={!pricingConfig}
+          onClick={fromAsinList ? undefined : () => setCalculatorDialog(true)}
+          disabled={!pricingConfig || fromAsinList}
         >
           Pricing Calculator {isCustomPricing && '(Custom)'}
         </Button>
@@ -1203,6 +1261,7 @@ export default function TemplateListingsPage() {
           startIcon={<SettingsIcon />} 
           onClick={() => setDefaultsDialog(true)}
           color="primary"
+          disabled={fromAsinList}
         >
           Set Defaults
           {template?.coreFieldDefaults && Object.keys(template.coreFieldDefaults).filter(k => template.coreFieldDefaults[k]).length > 0 && (
@@ -1217,6 +1276,7 @@ export default function TemplateListingsPage() {
       </Stack>
       
       {/* Batch Filter */}
+      {!fromAsinList && (
       <Paper sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={2} alignItems="center">
           <Typography variant="subtitle2">View:</Typography>
@@ -1245,11 +1305,21 @@ export default function TemplateListingsPage() {
           )}
         </Stack>
       </Paper>
+      )}
 
       <TableContainer component={Paper} sx={{ maxHeight: 600, maxWidth: '100%', overflowX: 'auto' }}>
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
+              {/* Checkbox column */}
+              <TableCell padding="checkbox" sx={{ fontWeight: 'bold', position: 'sticky', left: 0, backgroundColor: 'background.paper', zIndex: 2 }}>
+                <Checkbox
+                  size="small"
+                  indeterminate={selectedListings.size > 0 && selectedListings.size < listings.length}
+                  checked={listings.length > 0 && selectedListings.size === listings.length}
+                  onChange={handleToggleAll}
+                />
+              </TableCell>
               {/* All 38 core columns */}
               {coreColumns.map(col => (
                 <TableCell key={col.key} sx={{ fontWeight: 'bold', minWidth: col.width }}>
@@ -1272,13 +1342,21 @@ export default function TemplateListingsPage() {
           <TableBody>
             {listings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={coreColumns.length + (template?.customColumns?.length || 0) + 1} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                <TableCell colSpan={coreColumns.length + (template?.customColumns?.length || 0) + 2} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                   No listings found. Add one above!
                 </TableCell>
               </TableRow>
             ) : (
               listings.map((listing) => (
-                <TableRow key={listing._id} hover>
+                <TableRow key={listing._id} hover selected={selectedListings.has(listing._id)}>
+                  {/* Checkbox cell */}
+                  <TableCell padding="checkbox" sx={{ position: 'sticky', left: 0, backgroundColor: 'background.paper' }}>
+                    <Checkbox
+                      size="small"
+                      checked={selectedListings.has(listing._id)}
+                      onChange={() => handleToggleSelect(listing._id)}
+                    />
+                  </TableCell>
                   {/* All 38 core column values */}
                   {coreColumns.map(col => (
                     <TableCell key={col.key}>
@@ -1398,6 +1476,20 @@ export default function TemplateListingsPage() {
                       : ''
                   }
                 />
+
+                <FormControl size="small" sx={{ maxWidth: 280 }}>
+                  <InputLabel>Marketplace</InputLabel>
+                  <Select
+                    value={region}
+                    label="Marketplace"
+                    onChange={(e) => setRegion(e.target.value)}
+                    disabled={loadingAsin || loadingBulk}
+                  >
+                    {MARKETPLACE_OPTIONS.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 
                 <Stack direction="row" spacing={2}>
                   {!bulkMode ? (
@@ -2181,6 +2273,14 @@ export default function TemplateListingsPage() {
       />
       
       {/* ASIN Review Modal */}
+      <ListDirectlyDialog
+        open={listDirectlyDialog}
+        onClose={() => setListDirectlyDialog(false)}
+        selectedListings={selectedListings}
+        templateId={templateId}
+        sellerId={sellerId}
+      />
+
       <AsinReviewModal
         open={reviewModal}
         onClose={() => {
