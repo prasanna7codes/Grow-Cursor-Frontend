@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import {
   Box, Paper, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, IconButton, Dialog,
@@ -23,6 +24,67 @@ import PeopleIcon from '@mui/icons-material/People';
 import api from '../../lib/api';
 import { CHAT_TEMPLATES, personalizeTemplate } from '../../constants/chatTemplates';
 import ColumnSelector from '../../components/ColumnSelector';
+
+function decodeHtmlEntities(value) {
+  if (!value) return '';
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = value;
+    return textarea.value;
+  } catch {
+    return value;
+  }
+}
+
+function extractEbayMessageHtml(body) {
+  if (!body || typeof body !== 'string') return '';
+
+  const trimmedBody = body.trim();
+  if (!trimmedBody.startsWith('<')) {
+    return DOMPurify.sanitize(trimmedBody).replace(/\n/g, '<br />');
+  }
+
+  const regexPatterns = [
+    /<div[^>]*id=["']UserInputtedText["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*id=["']V4PrimaryMessage["'][^>]*>[\s\S]*?<font[^>]*>(?:[\s\S]*?)<strong>Dear[\s\S]*?<br\s*\/?>(?:\s*<br\s*\/?>)?([\s\S]*?)<br\s*\/?>\s*<br\s*\/?>/i
+  ];
+
+  for (const pattern of regexPatterns) {
+    const match = body.match(pattern);
+    if (match?.[1]) {
+      const cleaned = DOMPurify.sanitize(match[1], {
+        ALLOWED_TAGS: ['br', 'p', 'div', 'span', 'strong', 'b', 'em', 'i', 'u'],
+        ALLOWED_ATTR: []
+      }).trim();
+
+      if (cleaned) return cleaned;
+    }
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(body, 'text/html');
+    const userInput = doc.querySelector('#UserInputtedText');
+
+    if (userInput) {
+      return DOMPurify.sanitize(userInput.innerHTML, {
+        ALLOWED_TAGS: ['br', 'p', 'div', 'span', 'strong', 'b', 'em', 'i', 'u'],
+        ALLOWED_ATTR: []
+      }).trim();
+    }
+
+    const fallbackText = decodeHtmlEntities(doc.body?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return DOMPurify.sanitize(fallbackText);
+  } catch {
+    return DOMPurify.sanitize(
+      decodeHtmlEntities(body.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+    );
+  }
+}
 
 
 // --- RESOLUTION MODAL COMPONENT (Unchanged logic, kept for completeness) ---
@@ -281,7 +343,12 @@ function ResolutionDialog({ open, onClose, metaItem, onSave, chatAgents = [] }) 
               {messages.map((msg, i) => (
                 <Box key={i} sx={{ alignSelf: msg.sender === 'SELLER' ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
                   <Paper sx={{ p: 1.5, bgcolor: msg.sender === 'SELLER' ? '#1976d2' : '#fff', color: msg.sender === 'SELLER' ? '#fff' : '#000' }}>
-                    <Typography variant="body2">{msg.body}</Typography>
+                    <Typography
+                      variant="body2"
+                      component="div"
+                      sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
+                      dangerouslySetInnerHTML={{ __html: extractEbayMessageHtml(msg.body) }}
+                    />
                   </Paper>
                   <Typography variant="caption" sx={{ display: 'block', mt: 0.5, textAlign: msg.sender === 'SELLER' ? 'right' : 'left' }}>
                     {new Date(msg.messageDate).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} PT
