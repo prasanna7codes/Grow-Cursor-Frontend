@@ -81,6 +81,7 @@ import SellingPrivilegesPage from '../pages/admin/SellingPrivilegesPage.jsx';
 import EbayApiUsagePage from '../pages/admin/EbayApiUsagePage.jsx';
 import FeedUploadStatsPage from '../pages/admin/FeedUploadStatsPage.jsx';
 import SalaryPage from '../pages/admin/SalaryPage.jsx';
+import SellerFundsPage from '../pages/admin/SellerFundsPage.jsx';
 
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -100,6 +101,8 @@ import DepartmentIssuesPage from '../pages/admin/DepartmentIssuesPage.jsx';
 import InternalMessagesAdminPage from '../pages/admin/InternalMessagesAdminPage.jsx';
 import ManageCreditCardsPage from '../pages/admin/ManageCreditCardsPage.jsx';
 import ManageCreditCardNamesPage from '../pages/admin/ManageCreditCardNamesPage.jsx';
+import AffiliateOrdersPage from '../pages/admin/AffiliateOrdersPage.jsx';
+import LinkIcon from '@mui/icons-material/Link';
 import IdeasPage from '../pages/IdeasPage.jsx';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import BugReportIcon from '@mui/icons-material/BugReport';
@@ -126,6 +129,8 @@ import TemplateListingsPage from '../pages/admin/TemplateListingsPage.jsx';
 import TemplateListingAnalyticsPage from '../pages/admin/TemplateListingAnalyticsPage.jsx';
 import SelectSellerPage from '../pages/admin/SelectSellerPage.jsx';
 import SellerTemplatesPage from '../pages/admin/SellerTemplatesPage.jsx';
+import ListingDirectoryPage from '../pages/admin/ListingDirectoryPage.jsx';
+import TemplateDirectoryPage from '../pages/admin/TemplateDirectoryPage.jsx';
 import TemplateDatabasePage from '../pages/admin/TemplateDatabasePage.jsx';
 import CsvStoragePage from '../pages/admin/CsvStoragePage.jsx';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -452,6 +457,8 @@ export default function AdminLayout({ user, onLogout }) {
               {isSuper && <MenuItem component={Link} to="/admin/manage-templates" onClick={closeAllMenus}>Manage Templates</MenuItem>}
               {isSuper && <MenuItem component={Link} to="/admin/listings-database" onClick={closeAllMenus}>Listings Database</MenuItem>}
               <MenuItem component={Link} to="/admin/select-seller" onClick={closeAllMenus}>Add Template Listings</MenuItem>
+              <MenuItem component={Link} to="/admin/listing-directory" onClick={closeAllMenus}>Listing Directory</MenuItem>
+              <MenuItem component={Link} to="/admin/template-directory" onClick={closeAllMenus}>Template Directory</MenuItem>
             </Menu>
           </>
         )}
@@ -557,6 +564,22 @@ export default function AdminLayout({ user, onLogout }) {
                   <NavIcon icon={BarChartIcon} label="eBay API Usage" sidebarOpen={sidebarOpen} />
                 </ListItemIcon>
                 {sidebarOpen && <ListItemText primary="eBay API Usage" />}
+              </ListItemButton>
+            </ListItem>
+
+            {/* Seller Funds */}
+            <ListItem disablePadding>
+              <ListItemButton
+                component={Link}
+                to="/admin/seller-funds"
+                onClick={() => setMobileOpen(false)}
+                selected={location.pathname === '/admin/seller-funds'}
+                sx={selectedMenuItemStyle}
+              >
+                <ListItemIcon>
+                  <NavIcon icon={AccountBalanceIcon} label="Seller Funds" sidebarOpen={sidebarOpen} />
+                </ListItemIcon>
+                {sidebarOpen && <ListItemText primary="Seller Funds" />}
               </ListItemButton>
             </ListItem>
 
@@ -720,6 +743,8 @@ export default function AdminLayout({ user, onLogout }) {
               <MenuItem component={Link} to="/admin/conversation-management" onClick={closeAllMenus}>Conversation Mgmt</MenuItem>
               <MenuItem component={Link} to="/admin/amazon-accounts" onClick={closeAllMenus}>Manage Amazon Accts</MenuItem>
               <MenuItem component={Link} to="/admin/credit-cards" onClick={closeAllMenus}>Manage Credit Cards</MenuItem>
+              <Divider />
+              <MenuItem component={Link} to="/admin/affiliate-orders" onClick={closeAllMenus}>Affiliate Orders</MenuItem>
             </Menu>
           </>
         )}
@@ -1079,6 +1104,7 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/listings-summary" element={<ListingsSummaryPage />} />
               <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />
               <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />
+              <Route path="/seller-funds" element={<SellerFundsPage />} />
               <Route path="/feed-upload-stats" element={<FeedUploadStatsPage />} />
             </>
           ) : null}
@@ -1099,6 +1125,8 @@ export default function AdminLayout({ user, onLogout }) {
           {(isSuper || isAnyLister) && (
             <>
               <Route path="/template-listings" element={<TemplateListingsPage />} />
+              <Route path="/listing-directory" element={<ListingDirectoryPage />} />
+              <Route path="/template-directory" element={<TemplateDirectoryPage />} />
               <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />
               <Route path="/select-seller" element={<SelectSellerPage />} />
               <Route path="/seller-templates" element={<SellerTemplatesPage />} />
@@ -1168,6 +1196,7 @@ export default function AdminLayout({ user, onLogout }) {
               <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />
               <Route path="/credit-cards" element={<ManageCreditCardsPage />} />
               <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />
+              <Route path="/affiliate-orders" element={<AffiliateOrdersPage />} />
             </>
           )}
 

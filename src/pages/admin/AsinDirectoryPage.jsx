@@ -20,7 +20,11 @@ import {
   TablePagination,
   Toolbar,
   Tooltip,
-  CircularProgress
+  CircularProgress,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -62,11 +66,13 @@ export default function AsinDirectoryPage() {
   const [exportDialog, setExportDialog] = useState(false);
   const [listManagerDialog, setListManagerDialog] = useState(false);
   const [viewAsin, setViewAsin] = useState(null);
+  const [showMoved, setShowMoved] = useState(false);
+  const [marketplaceFilter, setMarketplaceFilter] = useState('');
 
   useEffect(() => {
     fetchAsins();
     fetchStats();
-  }, [page, rowsPerPage, search]);
+  }, [page, rowsPerPage, search, showMoved, marketplaceFilter]);
 
   const fetchAsins = async () => {
     try {
@@ -75,7 +81,9 @@ export default function AsinDirectoryPage() {
         params: {
           page: page + 1,
           limit: rowsPerPage,
-          search: search || undefined
+          search: search || undefined,
+          showMoved: showMoved ? 'true' : undefined,
+          region: marketplaceFilter || undefined
         }
       });
       setAsins(data.asins || []);
@@ -161,7 +169,7 @@ export default function AsinDirectoryPage() {
   const handleExport = async () => {
     try {
       const { data } = await api.get('/asin-directory', {
-        params: { limit: 999999 }
+        params: { limit: 999999, showMoved: 'true' }
       });
       const csv = generateCsvContent(data.asins);
       const date = new Date().toISOString().split('T')[0];
@@ -206,6 +214,20 @@ export default function AsinDirectoryPage() {
     setPage(0);
   };
 
+  const handleToggleShowMoved = () => {
+    setShowMoved(prev => !prev);
+    setPage(0);
+  };
+
+  const MARKETPLACE_FLAGS = { US: '🇺🇸', UK: '🇬🇧', CA: '🇨🇦', AU: '🇦🇺' };
+  const MARKETPLACE_OPTIONS = [
+    { value: '', label: 'All Marketplaces' },
+    { value: 'US', label: '🇺🇸 US' },
+    { value: 'UK', label: '🇬🇧 UK' },
+    { value: 'CA', label: '🇨🇦 CA' },
+    { value: 'AU', label: '🇦🇺 AU' },
+  ];
+
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -213,8 +235,9 @@ export default function AsinDirectoryPage() {
         {stats && (
           <Stack direction="row" spacing={1}>
             <Chip label={`Total: ${stats.total}`} color="primary" size="small" />
+            <Chip label={`Unassigned: ${stats.unassigned ?? stats.total}`} color="success" size="small" />
+            <Chip label={`In Lists: ${stats.assigned ?? 0}`} color="info" size="small" />
             <Chip label={`Today: ${stats.recentlyAdded.today}`} size="small" />
-            <Chip label={`This Week: ${stats.recentlyAdded.thisWeek}`} size="small" />
           </Stack>
         )}
       </Stack>
@@ -262,7 +285,29 @@ export default function AsinDirectoryPage() {
             Move to List
           </Button>
 
+          <Chip
+            label={showMoved ? 'Show All' : 'Unassigned Only'}
+            onClick={handleToggleShowMoved}
+            color={showMoved ? 'default' : 'warning'}
+            variant={showMoved ? 'outlined' : 'filled'}
+            size="small"
+            sx={{ cursor: 'pointer' }}
+          />
+
           <Box sx={{ flex: 1 }} />
+
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Marketplace</InputLabel>
+            <Select
+              value={marketplaceFilter}
+              label="Marketplace"
+              onChange={(e) => { setMarketplaceFilter(e.target.value); setPage(0); }}
+            >
+              {MARKETPLACE_OPTIONS.map(o => (
+                <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <TextField
             size="small"
@@ -367,6 +412,14 @@ export default function AsinDirectoryPage() {
                             <CopyIcon sx={{ fontSize: 14 }} />
                           </IconButton>
                         </Tooltip>
+                        {item.region && (
+                          <Chip
+                            label={`${MARKETPLACE_FLAGS[item.region] || ''}${item.region}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontSize: 11, height: 18, '& .MuiChip-label': { px: 0.75 } }}
+                          />
+                        )}
                         {(!item.price || !item.description) && (
                           <Tooltip title={[
                             !item.price && 'Missing price',

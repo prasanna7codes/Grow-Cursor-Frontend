@@ -742,6 +742,15 @@ function ChatDialog({ open, onClose, order }) {
   );
 }
 
+// --- EARNINGS HELPER ---
+function getOrderEarnings(order) {
+  const base = parseFloat(order.paymentSummary?.totalDueSeller?.value);
+  if (isNaN(base)) return null;
+  if (order.orderPaymentStatus === 'FULLY_REFUNDED') return base;
+  const adFee = parseFloat(order.adFeeGeneral) || 0;
+  return base - adFee;
+}
+
 // --- MOBILE ORDER CARD COMPONENT ---
 function MobileOrderCard({ order, index, onCopy, onMessage, onViewImages, formatCurrency, thumbnailImages }) {
   const [expanded, setExpanded] = useState(false);
@@ -861,10 +870,10 @@ function MobileOrderCard({ order, index, onCopy, onMessage, onViewImages, format
               fontWeight="bold"
               sx={{
                 fontSize: '0.9rem',
-                color: order.orderEarnings >= 0 ? 'success.main' : 'error.main'
+                color: getOrderEarnings(order) >= 0 ? 'success.main' : 'error.main'
               }}
             >
-              {formatCurrency(order.orderEarnings)}
+              {formatCurrency(getOrderEarnings(order))}
             </Typography>
           </Box>
           <Box>
@@ -1163,7 +1172,7 @@ function FulfillmentDashboard() {
 
   // Column visibility state - persisted in sessionStorage
   const DEFAULT_VISIBLE_COLUMNS = [
-    'seller', 'orderId', 'dateSold', 'shipBy', 'deliveryDate', 'productName',
+    'seller', 'orderId', 'dateSold', 'shipBy', 'deliveryDate', 'productName', 'buyerNote',
     'buyerName', 'shippingAddress', 'marketplace', 'subtotal',
     'shipping', 'salesTax', 'discount', 'transactionFees',
     'adFeeGeneral', 'cancelStatus', 'refunds', 'orderEarnings', 'trackingNumber',
@@ -1178,6 +1187,7 @@ function FulfillmentDashboard() {
     { id: 'shipBy', label: 'Ship By' },
     { id: 'deliveryDate', label: 'Delivery Date' },
     { id: 'productName', label: 'Product Name' },
+    { id: 'buyerNote', label: 'Buyer Note' },
     { id: 'buyerName', label: 'Buyer Name' },
     { id: 'shippingAddress', label: 'Shipping Address' },
     { id: 'marketplace', label: 'Marketplace' },
@@ -2458,8 +2468,8 @@ function FulfillmentDashboard() {
             <Divider sx={{ my: 1 }} />
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Typography fontWeight="bold" color="success.main">Order earnings</Typography>
-              <Typography fontWeight="bold" color={order.orderEarnings >= 0 ? 'success.main' : 'error.main'}>
-                {formatCurrency(order.orderEarnings)}
+              <Typography fontWeight="bold" color={getOrderEarnings(order) >= 0 ? 'success.main' : 'error.main'}>
+                {formatCurrency(getOrderEarnings(order))}
               </Typography>
             </Box>
           </Stack>
@@ -2555,6 +2565,7 @@ function FulfillmentDashboard() {
         'Seller': (o) => o.seller?.user?.username || '',
         'Date Sold': (o) => o.dateSold ? new Date(o.dateSold).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' }) : '',
         'Product Name': 'productName',
+        'Buyer Note': 'buyerCheckoutNotes',
         'Item Number': 'itemNumber',
         'Buyer Name': 'shippingFullName',
         'Buyer Username': (o) => o.buyer?.username || '',
@@ -2602,6 +2613,7 @@ function FulfillmentDashboard() {
         // 'shipBy': 'Ship By', // Not in prev CSV but we can add if needed
         // 'deliveryDate': 'Delivery Date', // Not in prev CSV
         'productName': 'Product Name',
+        'buyerNote': 'Buyer Note',
         'buyerName': 'Buyer Name',
         'shippingAddress': 'Shipping Address',
         'marketplace': 'Marketplace',
@@ -3405,6 +3417,7 @@ function FulfillmentDashboard() {
                     {visibleColumns.includes('shipBy') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Ship By</TableCell>}
                     {visibleColumns.includes('deliveryDate') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Delivery Date</TableCell>}
                     {visibleColumns.includes('productName') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Product Name</TableCell>}
+                    {visibleColumns.includes('buyerNote') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Buyer Note</TableCell>}
                     {visibleColumns.includes('buyerName') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Buyer Name</TableCell>}
                     {visibleColumns.includes('shippingAddress') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Shipping Address</TableCell>}
                     {visibleColumns.includes('marketplace') && <TableCell sx={{ backgroundColor: 'primary.main', color: 'white', fontWeight: 'bold', position: 'sticky', top: 0, zIndex: 100 }}>Marketplace</TableCell>}
@@ -3651,6 +3664,28 @@ function FulfillmentDashboard() {
                                 </Box>
                               )}
                             </Stack>
+                          </TableCell>
+                        )}
+                        {visibleColumns.includes('buyerNote') && (
+                          <TableCell sx={{ maxWidth: 300 }}>
+                            {order.buyerCheckoutNotes ? (
+                              <Tooltip title={order.buyerCheckoutNotes} arrow placement="top">
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    fontStyle: 'italic',
+                                    color: 'text.secondary'
+                                  }}
+                                >
+                                  {order.buyerCheckoutNotes}
+                                </Typography>
+                              </Tooltip>
+                            ) : (
+                              <Typography variant="body2" color="text.disabled">-</Typography>
+                            )}
                           </TableCell>
                         )}
                         {visibleColumns.includes('buyerName') && (
@@ -3967,15 +4002,15 @@ function FulfillmentDashboard() {
                                 }}
                                 inputProps={{ step: '0.01' }}
                               />
-                            ) : order.orderEarnings != null ? (
+                            ) : getOrderEarnings(order) != null ? (
                               <Typography
                                 variant="body2"
                                 sx={{
-                                  color: order.orderEarnings >= 0 ? 'success.main' : 'error.main',
+                                  color: getOrderEarnings(order) >= 0 ? 'success.main' : 'error.main',
                                   fontWeight: 'bold'
                                 }}
                               >
-                                {formatCurrency(order.orderEarnings)}
+                                {formatCurrency(getOrderEarnings(order))}
                               </Typography>
                             ) : (
                               <Typography variant="body2" color="text.secondary">-</Typography>
