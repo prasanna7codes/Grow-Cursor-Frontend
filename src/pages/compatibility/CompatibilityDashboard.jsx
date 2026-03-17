@@ -1125,6 +1125,7 @@ export default function CompatibilityDashboard() {
       const { data } = await api.post('/ebay/update-compatibility', {
         sellerId: currentSellerId,
         itemId: selectedItem.itemId,
+        sku: selectedItem.sku,
         compatibilityList: editCompatList
       });
 
