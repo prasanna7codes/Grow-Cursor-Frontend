@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -34,6 +34,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
 import api from '../lib/api';
+import usePermissions from '../hooks/usePermissions.js';
 
 // Memoized NotesCell component to prevent unnecessary re-renders
 const NotesCell = memo(({ ideaId, initialNotes, onSave }) => {
@@ -140,6 +141,13 @@ export default function IdeasPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isSmallMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  // Read-only enforcement
+  const storedUser = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
+  }, []);
+  const { isReadOnly: checkReadOnly } = usePermissions(storedUser);
+  const readOnly = checkReadOnly('Ideas');
 
   const [ideas, setIdeas] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -343,6 +351,7 @@ export default function IdeasPage() {
           >
             Refresh
           </Button>
+          {!readOnly && (
           <Button
             variant="contained"
             startIcon={!isSmallMobile && <AddIcon />}
@@ -351,9 +360,13 @@ export default function IdeasPage() {
             fullWidth={isMobile}
           >
             {isSmallMobile ? 'New' : 'New Idea/Issue'}
-          </Button>
+          </Button>)}
         </Stack>
       </Stack>
+
+      {readOnly && (
+        <Alert severity="warning" sx={{ mb: 2 }}>You have read-only access to this page.</Alert>
+      )}
 
       {/* Filters */}
       <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: 2 }}>
@@ -539,6 +552,7 @@ export default function IdeasPage() {
                       <Select
                         value={idea.status}
                         onChange={(e) => handleStatusChange(idea._id, e.target.value)}
+                        disabled={readOnly}
                         sx={{
                           bgcolor: idea.status === 'open' 
                             ? '#fff3cd' 
@@ -582,6 +596,7 @@ export default function IdeasPage() {
                           value={idea.pickedUpBy || ''}
                           onChange={(e) => handlePickedUpByChange(idea._id, e.target.value)}
                           displayEmpty
+                          disabled={readOnly}
                           sx={{
                             fontSize: '0.875rem',
                           }}
@@ -626,13 +641,14 @@ export default function IdeasPage() {
                     </TableCell>
                   )}
                   <TableCell>
+                    {!readOnly && (
                     <IconButton
                       color="error"
                       size="small"
                       onClick={() => handleDelete(idea._id)}
                     >
                       <DeleteIcon />
-                    </IconButton>
+                    </IconButton>)}
                   </TableCell>
                 </TableRow>
               ))}

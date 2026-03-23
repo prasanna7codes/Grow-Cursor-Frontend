@@ -33,10 +33,12 @@ function useAuth() {
   const navigate = useNavigate();
   const login = (t, u) => {
     setToken(t);
-    setUser(u);
+    // Ensure pagePermissions is always present (even if empty)
+    const userWithPerms = { ...u, pagePermissions: u.pagePermissions || [] };
+    setUser(userWithPerms);
     sessionStorage.setItem('auth_token', t);   // per-tab token
     setAuthToken(t);
-    localStorage.setItem('user', JSON.stringify(u));
+    localStorage.setItem('user', JSON.stringify(userWithPerms));
 
     // Navigation Logic
     if (u.role === 'lister') navigate('/lister');

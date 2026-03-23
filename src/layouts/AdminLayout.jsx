@@ -147,6 +147,9 @@ import ListingStatsPage from '../pages/admin/ListingStatsPage.jsx';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
+import SecurityIcon from '@mui/icons-material/Security';
+import usePermissions from '../hooks/usePermissions.js';
+import UserPermissionsPage from '../pages/admin/UserPermissionsPage.jsx';
 
 const drawerWidth = 230;
 
@@ -236,6 +239,9 @@ export default function AdminLayout({ user, onLogout }) {
   const isTrainee = user?.role === 'trainee';
   const isAnyLister = isLister || isAdvanceLister || isTrainee;
 
+  // Dynamic page-level permission checks
+  const { hasAccess } = usePermissions(user);
+
   const drawer = (
     <div>
       <Toolbar />
@@ -311,8 +317,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItemButton>
         </ListItem>
 
-        {/* Finance Dropdown - visible to superadmin only */}
-        {isSuper && (
+        {/* Finance Dropdown */}
+        {(hasAccess('PayoneerSheet') || hasAccess('BankAccounts') || hasAccess('Transactions') || hasAccess('ExtraExpenses') || hasAccess('CreditCardNames') || hasAccess('Salary')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -335,15 +341,16 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              <MenuItem component={Link} to="/admin/payoneer" onClick={closeAllMenus}>Payoneer Sheet</MenuItem>
-              <MenuItem component={Link} to="/admin/bank-accounts" onClick={closeAllMenus}>Bank Accounts</MenuItem>
-              <MenuItem component={Link} to="/admin/transactions" onClick={closeAllMenus}>Transactions</MenuItem>
-              <MenuItem component={Link} to="/admin/extra-expenses" onClick={closeAllMenus}>Extra Expenses</MenuItem>
-              <MenuItem component={Link} to="/admin/credit-card-names" onClick={closeAllMenus}>Credit Card Names</MenuItem>
-              <MenuItem component={Link} to="/admin/salary" onClick={closeAllMenus}>Salary Page</MenuItem>
+              {hasAccess('PayoneerSheet') && <MenuItem component={Link} to="/admin/payoneer" onClick={closeAllMenus}>Payoneer Sheet</MenuItem>}
+              {hasAccess('BankAccounts') && <MenuItem component={Link} to="/admin/bank-accounts" onClick={closeAllMenus}>Bank Accounts</MenuItem>}
+              {hasAccess('Transactions') && <MenuItem component={Link} to="/admin/transactions" onClick={closeAllMenus}>Transactions</MenuItem>}
+              {hasAccess('ExtraExpenses') && <MenuItem component={Link} to="/admin/extra-expenses" onClick={closeAllMenus}>Extra Expenses</MenuItem>}
+              {hasAccess('CreditCardNames') && <MenuItem component={Link} to="/admin/credit-card-names" onClick={closeAllMenus}>Credit Card Names</MenuItem>}
+              {hasAccess('Salary') && <MenuItem component={Link} to="/admin/salary" onClick={closeAllMenus}>Salary Page</MenuItem>}
             </Menu>
 
             {/* View All Messages - standalone */}
+            {hasAccess('InternalMessagesAdmin') && (
             <ListItem disablePadding>
               <ListItemButton
                 component={Link}
@@ -357,9 +364,10 @@ export default function AdminLayout({ user, onLogout }) {
                 </ListItemIcon>
                 {sidebarOpen && <ListItemText primary="View All Messages" />}
               </ListItemButton>
-            </ListItem>
+            </ListItem>)}
 
-            {/* Working Hours Tracking - superadmin only */}
+            {/* Working Hours Tracking */}
+            {hasAccess('Attendance') && (
             <ListItem disablePadding>
               <ListItemButton
                 component={Link}
@@ -373,12 +381,12 @@ export default function AdminLayout({ user, onLogout }) {
                 </ListItemIcon>
                 {sidebarOpen && <ListItemText primary="Working Hours Tracking" />}
               </ListItemButton>
-            </ListItem>
+            </ListItem>)}
           </>
         )}
 
-        {/* Product Research - visible to ProductAdmin or Superadmin */}
-        {isProductAdmin || isSuper ? (
+        {/* Product Research */}
+        {hasAccess('ProductResearch') ? (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -398,8 +406,8 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         ) : null}
 
-        {/* Template Listing flyout (Superadmin + Listers) */}
-        {(isSuper || isAnyLister) && (
+        {/* Template Listing flyout */}
+        {(hasAccess('ManageTemplates') || hasAccess('ListingsDatabase') || hasAccess('SelectSeller') || hasAccess('ListingDirectory') || hasAccess('TemplateDirectory')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -421,17 +429,17 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              {isSuper && <MenuItem component={Link} to="/admin/manage-templates" onClick={closeAllMenus}>Manage Templates</MenuItem>}
-              {isSuper && <MenuItem component={Link} to="/admin/listings-database" onClick={closeAllMenus}>Listings Database</MenuItem>}
-              <MenuItem component={Link} to="/admin/select-seller" onClick={closeAllMenus}>Add Template Listings</MenuItem>
-              <MenuItem component={Link} to="/admin/listing-directory" onClick={closeAllMenus}>Listing Directory</MenuItem>
-              <MenuItem component={Link} to="/admin/template-directory" onClick={closeAllMenus}>Template Directory</MenuItem>
+              {hasAccess('ManageTemplates') && <MenuItem component={Link} to="/admin/manage-templates" onClick={closeAllMenus}>Manage Templates</MenuItem>}
+              {hasAccess('ListingsDatabase') && <MenuItem component={Link} to="/admin/listings-database" onClick={closeAllMenus}>Listings Database</MenuItem>}
+              {hasAccess('SelectSeller') && <MenuItem component={Link} to="/admin/select-seller" onClick={closeAllMenus}>Add Template Listings</MenuItem>}
+              {hasAccess('ListingDirectory') && <MenuItem component={Link} to="/admin/listing-directory" onClick={closeAllMenus}>Listing Directory</MenuItem>}
+              {hasAccess('TemplateDirectory') && <MenuItem component={Link} to="/admin/template-directory" onClick={closeAllMenus}>Template Directory</MenuItem>}
             </Menu>
           </>
         )}
 
-        {/* Continue with Product Features (Superadmin only) */}
-        {isSuper ? (
+        {/* ASIN Importer */}
+        {(hasAccess('AsinDirectory') || hasAccess('AsinLists')) ? (
           <>
 
             {/* ASIN Importer */}
@@ -455,15 +463,15 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              <MenuItem component={Link} to="/admin/asin-directory" onClick={closeAllMenus}>ASIN Directory</MenuItem>
-              <MenuItem component={Link} to="/admin/asin-lists" onClick={closeAllMenus}>ASIN Lists</MenuItem>
+              {hasAccess('AsinDirectory') && <MenuItem component={Link} to="/admin/asin-directory" onClick={closeAllMenus}>ASIN Directory</MenuItem>}
+              {hasAccess('AsinLists') && <MenuItem component={Link} to="/admin/asin-lists" onClick={closeAllMenus}>ASIN Lists</MenuItem>}
             </Menu>
 
           </>
         ) : null}
 
-        {/* Feed Upload - accessible to listers, listingadmins, and superadmins */}
-        {(isListingAdmin || isSuper || isLister) && (
+        {/* Feed Upload */}
+        {hasAccess('FeedUpload') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -480,8 +488,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         )}
 
-        {/* CSV Storage - accessible to listers, listingadmins, and superadmins */}
-        {(isListingAdmin || isSuper || isLister) && (
+        {/* CSV Storage */}
+        {hasAccess('CsvStorage') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -499,7 +507,7 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
         {/* Listing Dropdown with Monitoring Subdropdown */}
-        {(isListingAdmin || isSuper) && (
+        {(hasAccess('SellingPrivileges') || hasAccess('EbayApiUsage') || hasAccess('SellerFunds') || hasAccess('ProductTable') || hasAccess('FeedUploadStats')) && (
           <>
 
             {/* Selling Privileges */}
@@ -571,9 +579,9 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              <MenuItem component={Link} to="/admin/listing" onClick={closeAllMenus}>Product Table</MenuItem>
-              <MenuItem component={Link} to="/admin/feed-upload" onClick={closeAllMenus}>Feed Upload (CSV)</MenuItem>
-              <MenuItem component={Link} to="/admin/feed-upload-stats" onClick={closeAllMenus}>Feed Upload Stats</MenuItem>
+              {hasAccess('ProductTable') && <MenuItem component={Link} to="/admin/listing" onClick={closeAllMenus}>Product Table</MenuItem>}
+              {hasAccess('FeedUpload') && <MenuItem component={Link} to="/admin/feed-upload" onClick={closeAllMenus}>Feed Upload (CSV)</MenuItem>}
+              {hasAccess('FeedUploadStats') && <MenuItem component={Link} to="/admin/feed-upload-stats" onClick={closeAllMenus}>Feed Upload Stats</MenuItem>}
               <MenuItem
                 onMouseEnter={(e) => setMonitoringAnchorEl(e.currentTarget)}
                 onMouseLeave={() => setMonitoringAnchorEl(null)}
@@ -595,20 +603,20 @@ export default function AdminLayout({ user, onLogout }) {
               }}
               sx={{ pointerEvents: 'none', '& .MuiPaper-root': { pointerEvents: 'auto', minWidth: '220px', maxHeight: '80vh' } }}
             >
-              <MenuItem component={Link} to="/admin/task-list" onClick={closeAllMenus}>Task List</MenuItem>
-              <MenuItem component={Link} to="/admin/assignments" onClick={closeAllMenus}>Assignments</MenuItem>
-              <MenuItem component={Link} to="/admin/listings-summary" onClick={closeAllMenus}>Listings Summary</MenuItem>
-              <MenuItem component={Link} to="/admin/listing-sheet" onClick={closeAllMenus}>Listing Sheet</MenuItem>
-              <MenuItem component={Link} to="/admin/store-wise-tasks" onClick={closeAllMenus}>Store-Wise Tasks</MenuItem>
-              <MenuItem component={Link} to="/admin/store-daily-tasks" onClick={closeAllMenus}>Store Daily Tasks</MenuItem>
-              <MenuItem component={Link} to="/admin/lister-info" onClick={closeAllMenus}>Lister Info</MenuItem>
-              <MenuItem component={Link} to="/admin/range-analyzer" onClick={closeAllMenus}>Range Analyzer</MenuItem>
+              {hasAccess('TaskList') && <MenuItem component={Link} to="/admin/task-list" onClick={closeAllMenus}>Task List</MenuItem>}
+              {hasAccess('Assignments') && <MenuItem component={Link} to="/admin/assignments" onClick={closeAllMenus}>Assignments</MenuItem>}
+              {hasAccess('ListingsSummary') && <MenuItem component={Link} to="/admin/listings-summary" onClick={closeAllMenus}>Listings Summary</MenuItem>}
+              {hasAccess('ListingSheet') && <MenuItem component={Link} to="/admin/listing-sheet" onClick={closeAllMenus}>Listing Sheet</MenuItem>}
+              {hasAccess('StoreWiseTasks') && <MenuItem component={Link} to="/admin/store-wise-tasks" onClick={closeAllMenus}>Store-Wise Tasks</MenuItem>}
+              {hasAccess('StoreDailyTasks') && <MenuItem component={Link} to="/admin/store-daily-tasks" onClick={closeAllMenus}>Store Daily Tasks</MenuItem>}
+              {hasAccess('ListerInfo') && <MenuItem component={Link} to="/admin/lister-info" onClick={closeAllMenus}>Lister Info</MenuItem>}
+              {hasAccess('RangeAnalyzer') && <MenuItem component={Link} to="/admin/range-analyzer" onClick={closeAllMenus}>Range Analyzer</MenuItem>}
             </Menu>
           </>
         )}
 
         {/* Compatibility Dropdown */}
-        {isSuper && (
+        {(hasAccess('CompatibilityTasks') || hasAccess('CompatibilityProgress') || hasAccess('AiFitmentUsage') || hasAccess('ListingStats') || hasAccess('CompatibilityBatchHistory')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -631,16 +639,16 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              <MenuItem component={Link} to="/admin/compatibility-tasks" onClick={closeAllMenus}>Compatibility Tasks</MenuItem>
-              <MenuItem component={Link} to="/admin/compatibility-progress" onClick={closeAllMenus}>Progress Tracking</MenuItem>
-              <MenuItem component={Link} to="/admin/ai-fitment-usage" onClick={closeAllMenus}>AI Fitment Usage</MenuItem>
-              <MenuItem component={Link} to="/admin/listing-stats" onClick={closeAllMenus}>Listing Statistics</MenuItem>
-              <MenuItem component={Link} to="/admin/compatibility-batch-history" onClick={closeAllMenus}>Batch History</MenuItem>
+              {hasAccess('CompatibilityTasks') && <MenuItem component={Link} to="/admin/compatibility-tasks" onClick={closeAllMenus}>Compatibility Tasks</MenuItem>}
+              {hasAccess('CompatibilityProgress') && <MenuItem component={Link} to="/admin/compatibility-progress" onClick={closeAllMenus}>Progress Tracking</MenuItem>}
+              {hasAccess('AiFitmentUsage') && <MenuItem component={Link} to="/admin/ai-fitment-usage" onClick={closeAllMenus}>AI Fitment Usage</MenuItem>}
+              {hasAccess('ListingStats') && <MenuItem component={Link} to="/admin/listing-stats" onClick={closeAllMenus}>Listing Statistics</MenuItem>}
+              {hasAccess('CompatibilityBatchHistory') && <MenuItem component={Link} to="/admin/compatibility-batch-history" onClick={closeAllMenus}>Batch History</MenuItem>}
             </Menu>
           </>
         )}
 
-        {(isSuper || isCompatibilityAdmin || isCompatibilityEditor) && (
+        {hasAccess('CompatibilityDashboard') && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -673,8 +681,8 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {/* Orders Dept Dropdown - UPDATED FOR HOC & COMPLIANCE MANAGER */}
-        {(isSuper || isFulfillmentAdmin || isHOC || isComplianceManager) && (
+        {/* Orders Dept Dropdown */}
+        {(hasAccess('OrdersDashboard') || hasAccess('FulfillmentDashboard') || hasAccess('Disputes')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -697,29 +705,29 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px', maxHeight: '80vh' } }}
             >
-              <MenuItem component={Link} to="/admin/orders-dashboard" onClick={closeAllMenus}>Orders Dashboard</MenuItem>
-              <MenuItem component={Link} to="/admin/order-analytics" onClick={closeAllMenus}>Order Analytics</MenuItem>
-              <MenuItem component={Link} to="/admin/seller-analytics" onClick={closeAllMenus}>Seller Analytics</MenuItem>
-              <MenuItem component={Link} to="/admin/fulfillment" onClick={closeAllMenus}>All Orders</MenuItem>
-              <MenuItem component={Link} to="/admin/all-orders-sheet" onClick={closeAllMenus}>All Orders Sheet (USD)</MenuItem>
-              <MenuItem component={Link} to="/admin/awaiting-shipment" onClick={closeAllMenus}>Awaiting Shipment</MenuItem>
-              <MenuItem component={Link} to="/admin/awaiting-sheet" onClick={closeAllMenus}>Awaiting Sheet</MenuItem>
-              <MenuItem component={Link} to="/admin/amazon-arrivals" onClick={closeAllMenus}>Amazon Arrivals</MenuItem>
-              <MenuItem component={Link} to="/admin/fulfillment-notes" onClick={closeAllMenus}>Fulfillment Notes</MenuItem>
-              <MenuItem component={Link} to="/admin/disputes" onClick={closeAllMenus}>Issues and Resolutions</MenuItem>
-              <MenuItem component={Link} to="/admin/account-health" onClick={closeAllMenus}>Account Health Report</MenuItem>
-              <MenuItem component={Link} to="/admin/message-received" onClick={closeAllMenus}>Buyer Messages</MenuItem>
-              <MenuItem component={Link} to="/admin/conversation-management" onClick={closeAllMenus}>Conversation Mgmt</MenuItem>
-              <MenuItem component={Link} to="/admin/amazon-accounts" onClick={closeAllMenus}>Manage Amazon Accts</MenuItem>
-              <MenuItem component={Link} to="/admin/credit-cards" onClick={closeAllMenus}>Manage Credit Cards</MenuItem>
+              {hasAccess('OrdersDashboard') && <MenuItem component={Link} to="/admin/orders-dashboard" onClick={closeAllMenus}>Orders Dashboard</MenuItem>}
+              {hasAccess('OrderAnalytics') && <MenuItem component={Link} to="/admin/order-analytics" onClick={closeAllMenus}>Order Analytics</MenuItem>}
+              {hasAccess('SellerAnalytics') && <MenuItem component={Link} to="/admin/seller-analytics" onClick={closeAllMenus}>Seller Analytics</MenuItem>}
+              {hasAccess('FulfillmentDashboard') && <MenuItem component={Link} to="/admin/fulfillment" onClick={closeAllMenus}>All Orders</MenuItem>}
+              {hasAccess('AllOrdersSheet') && <MenuItem component={Link} to="/admin/all-orders-sheet" onClick={closeAllMenus}>All Orders Sheet (USD)</MenuItem>}
+              {hasAccess('AwaitingShipment') && <MenuItem component={Link} to="/admin/awaiting-shipment" onClick={closeAllMenus}>Awaiting Shipment</MenuItem>}
+              {hasAccess('AwaitingSheet') && <MenuItem component={Link} to="/admin/awaiting-sheet" onClick={closeAllMenus}>Awaiting Sheet</MenuItem>}
+              {hasAccess('AmazonArrivals') && <MenuItem component={Link} to="/admin/amazon-arrivals" onClick={closeAllMenus}>Amazon Arrivals</MenuItem>}
+              {hasAccess('FulfillmentNotes') && <MenuItem component={Link} to="/admin/fulfillment-notes" onClick={closeAllMenus}>Fulfillment Notes</MenuItem>}
+              {hasAccess('Disputes') && <MenuItem component={Link} to="/admin/disputes" onClick={closeAllMenus}>Issues and Resolutions</MenuItem>}
+              {hasAccess('AccountHealth') && <MenuItem component={Link} to="/admin/account-health" onClick={closeAllMenus}>Account Health Report</MenuItem>}
+              {hasAccess('MessageReceived') && <MenuItem component={Link} to="/admin/message-received" onClick={closeAllMenus}>Buyer Messages</MenuItem>}
+              {hasAccess('ConversationManagement') && <MenuItem component={Link} to="/admin/conversation-management" onClick={closeAllMenus}>Conversation Mgmt</MenuItem>}
+              {hasAccess('AmazonAccounts') && <MenuItem component={Link} to="/admin/amazon-accounts" onClick={closeAllMenus}>Manage Amazon Accts</MenuItem>}
+              {hasAccess('CreditCards') && <MenuItem component={Link} to="/admin/credit-cards" onClick={closeAllMenus}>Manage Credit Cards</MenuItem>}
               <Divider />
-              <MenuItem component={Link} to="/admin/affiliate-orders" onClick={closeAllMenus}>Affiliate Orders</MenuItem>
+              {hasAccess('AffiliateOrders') && <MenuItem component={Link} to="/admin/affiliate-orders" onClick={closeAllMenus}>Affiliate Orders</MenuItem>}
             </Menu>
           </>
         )}
 
         {/* Manage Components Dropdown */}
-        {isSuper && (
+        {(hasAccess('ManageCategories') || hasAccess('ManagePlatforms') || hasAccess('ManageStores')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -740,14 +748,14 @@ export default function AdminLayout({ user, onLogout }) {
               {...flyoutMenuPositionProps}
               sx={{ '& .MuiPaper-root': { minWidth: '220px' } }}
             >
-              <MenuItem component={Link} to="/admin/categories" onClick={closeAllMenus}>Manage Categories</MenuItem>
-              <MenuItem component={Link} to="/admin/platforms" onClick={closeAllMenus}>Manage Platforms</MenuItem>
-              <MenuItem component={Link} to="/admin/stores" onClick={closeAllMenus}>Manage Stores</MenuItem>
+              {hasAccess('ManageCategories') && <MenuItem component={Link} to="/admin/categories" onClick={closeAllMenus}>Manage Categories</MenuItem>}
+              {hasAccess('ManagePlatforms') && <MenuItem component={Link} to="/admin/platforms" onClick={closeAllMenus}>Manage Platforms</MenuItem>}
+              {hasAccess('ManageStores') && <MenuItem component={Link} to="/admin/stores" onClick={closeAllMenus}>Manage Stores</MenuItem>}
             </Menu>
           </>
         )}
 
-        {isProductAdmin ? (
+        {hasAccess('ManageCategories') && !isSuper ? (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -764,7 +772,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         ) : null}
 
-        {isSuper || isListingAdmin || isHRAdmin || isOperationHead ? (
+        {hasAccess('AddUser') ? (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -779,7 +787,7 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         ) : null}
 
-        {(isCompatibilityAdmin) && (
+        {hasAccess('AddCompatibilityEditor') && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -820,7 +828,7 @@ export default function AdminLayout({ user, onLogout }) {
           </>
         )}
 
-        {(isCompatibilityEditor) && (
+        {hasAccess('CompatibilityEditor') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -836,8 +844,8 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
 
-        {/* Employee Management - visible to superadmin and hradmin only */}
-        {(isSuper || isHRAdmin) && (
+        {/* Employee Management */}
+        {hasAccess('EmployeeManagement') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -855,8 +863,8 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
 
-        {/* User-Seller Assignments - superadmin, hradmin, hr */}
-        {(isSuper || isHRAdmin || user?.role === 'hr') && (
+        {/* User-Seller Assignments */}
+        {hasAccess('UserSellerAssignments') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -905,8 +913,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItemButton>
         </ListItem>)}
 
-        {/* Leave Admin - visible to superadmin and hradmin only */}
-        {(isSuper || isHRAdmin) && (
+        {/* Leave Admin */}
+        {hasAccess('LeaveAdmin') && (
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -923,8 +931,8 @@ export default function AdminLayout({ user, onLogout }) {
           </ListItem>
         )}
 
-        {/* [Testing]Employee Details - visible to superadmin, hradmin, and operation head */}
-        {(isSuper || isHRAdmin || isOperationHead) && (
+        {/* Employee Details */}
+        {hasAccess('EmployeeDetails') && (
           <>
             <ListItem disablePadding>
               <ListItemButton
@@ -941,6 +949,24 @@ export default function AdminLayout({ user, onLogout }) {
               </ListItemButton>
             </ListItem>
           </>
+        )}
+
+        {/* User Permissions - superadmin only */}
+        {hasAccess('UserPermissions') && (
+          <ListItem disablePadding>
+            <ListItemButton
+              component={Link}
+              to="/admin/user-permissions"
+              onClick={() => setMobileOpen(false)}
+              selected={location.pathname === '/admin/user-permissions'}
+              sx={selectedMenuItemStyle}
+            >
+              <ListItemIcon>
+                <NavIcon icon={SecurityIcon} label="User Permissions" sidebarOpen={sidebarOpen} />
+              </ListItemIcon>
+              {sidebarOpen && <ListItemText primary="User Permissions" />}
+            </ListItemButton>
+          </ListItem>
         )}
 
       </List>
@@ -1026,169 +1052,112 @@ export default function AdminLayout({ user, onLogout }) {
       <Box component="main" sx={{ flexGrow: 1, p: 3, width: { sm: `calc(100% - ${sidebarOpen ? drawerWidth : 56}px)` }, transition: 'width 0.2s' }}>
         <Toolbar />
         <Routes>
-          {/* Ideas & Issues - accessible to ALL roles */}
+          {/* Universal routes */}
           <Route path="/ideas" element={<IdeasPage />} />
-
-          {!isSuper && <Route path="/about-me" element={<AboutMePage />} />}
-          {isProductAdmin || isSuper ? (
-            <>
-              <Route path="/research" element={<ProductResearchPage />} />
-              <Route path="/ranges" element={<ManageRangesPage />} />
-              <Route path="/categories" element={<ManageCategoriesPage />} />
-              <Route path="/amazon-lookup" element={<AmazonLookupPage />} />
-              <Route path="/product-umbrellas" element={<ManageProductUmbrellasPage />} />
-              <Route path="/asin-storage" element={<ASINStoragePage />} />
-              <Route path="/asin-directory" element={<AsinDirectoryPage />} />
-              <Route path="/asin-lists" element={<AsinListPage />} />
-              <Route path="/column-creator" element={<ColumnCreatorPage />} />
-            </>
-          ) : null}
-          {isListingAdmin || isSuper ? (
-            <>
-              <Route path="/listing" element={<ListingManagementPage />} />
-              <Route path="/assignments" element={<AdminAssignmentsPage />} />
-              <Route path="/task-list" element={<TaskListPage />} />
-              <Route path="/listing-sheet" element={<ListingSheetPage />} />
-              <Route path="/store-wise-tasks" element={<StoreWiseTaskListPage />} />
-              <Route path="/store-wise-tasks/details" element={<StoreTaskDetailPage />} />
-              <Route path="/store-daily-tasks" element={<StoreDailyTasksPage />} />
-              <Route path="/lister-info" element={<ListerInfoPage />} />
-              <Route path="/lister-info/details" element={<ListerInfoDetailPage />} />
-              <Route path="/range-analyzer" element={<RangeAnalyzerPage />} />
-            </>
-          ) : null}
-          {isSuper || isListingAdmin || isHRAdmin || isOperationHead ? (
-            <Route path="/add-user" element={<AddListerPage />} />
-          ) : null}
-          {isSuper || isListingAdmin || isLister ? (
-            <Route path="/feed-upload" element={<FeedUploadPage />} />
-          ) : null}
-          {isSuper || isListingAdmin || isLister ? (
-            <Route path="/csv-storage" element={<CsvStoragePage />} />
-          ) : null}
-          {isSuper || isListingAdmin ? (
-            <>
-              <Route path="/platforms" element={<ManagePlatformsPage />} />
-              <Route path="/stores" element={<ManageStoresPage />} />
-              <Route path="/listings-summary" element={<ListingsSummaryPage />} />
-              <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />
-              <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />
-              <Route path="/seller-funds" element={<SellerFundsPage />} />
-              <Route path="/feed-upload-stats" element={<FeedUploadStatsPage />} />
-            </>
-          ) : null}
-          {isSuper && (
-            <>
-              <>
-                <Route path="/user-credentials" element={<UserCredentialsPage />} />
-                <Route path="/payoneer" element={<PayoneerSheetPage />} />
-                <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                <Route path="/transactions" element={<TransactionPage />} />
-                <Route path="/extra-expenses" element={<ExtraExpensePage />} />
-                <Route path="/manage-templates" element={<ManageTemplatesPage />} />
-                <Route path="/listings-database" element={<TemplateDatabasePage />} />
-                <Route path="/salary" element={<SalaryPage />} />
-              </>
-            </>
-          )}
-          {(isSuper || isAnyLister) && (
-            <>
-              <Route path="/template-listings" element={<TemplateListingsPage />} />
-              <Route path="/listing-directory" element={<ListingDirectoryPage />} />
-              <Route path="/template-directory" element={<TemplateDirectoryPage />} />
-              <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />
-              <Route path="/select-seller" element={<SelectSellerPage />} />
-              <Route path="/seller-templates" element={<SellerTemplatesPage />} />
-            </>
-          )}
-          {(isSuper || isHRAdmin || isOperationHead) && (
-            <Route path="/employee-details" element={<EmployeeDetailsPage />} />
-          )}
-          {(isSuper || isHRAdmin) && (
-            <Route path="/employee-management" element={<EmployeeManagementPage />} />
-          )}
-
-          {/* Leave Management - accessible to ALL authenticated users */}
+          <Route path="/about-me" element={<AboutMePage />} />
+          <Route path="/internal-messages" element={<InternalMessagesPage />} />
+          <Route path="/user-performance" element={<UserPerformancePage />} />
           <Route path="/my-leaves" element={<LeaveManagementPage />} />
 
-          {/* Leave Admin - accessible to superadmin and hradmin only */}
-          {(isSuper || isHRAdmin) && (
-            <Route path="/leave-admin" element={<LeaveAdminPage />} />
-          )}
+          {/* Product routes */}
+          {hasAccess('ProductResearch') && <Route path="/research" element={<ProductResearchPage />} />}
+          {hasAccess('ProductResearch') && <Route path="/ranges" element={<ManageRangesPage />} />}
+          {hasAccess('ManageCategories') && <Route path="/categories" element={<ManageCategoriesPage />} />}
+          {hasAccess('ProductResearch') && <Route path="/amazon-lookup" element={<AmazonLookupPage />} />}
+          {hasAccess('ProductResearch') && <Route path="/product-umbrellas" element={<ManageProductUmbrellasPage />} />}
+          {hasAccess('ProductResearch') && <Route path="/asin-storage" element={<ASINStoragePage />} />}
+          {hasAccess('ProductResearch') && <Route path="/column-creator" element={<ColumnCreatorPage />} />}
 
-          {isCompatibilityAdmin && (
-            <>
-              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
-              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
-              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
-            </>
-          )}
-          {(isSuper || isCompatibilityAdmin) && (
-            <>
-              <Route path="/add-compatibility-editor" element={<AddListerPage />} />
-              <Route path="/compatibility-tasks" element={<AdminTaskList />} />
-              <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />
-              <Route path="/ai-fitment-usage" element={<AiFitmentUsagePage />} />
-              <Route path="/listing-stats" element={<ListingStatsPage />} />
-            </>
-          )}
-          {isCompatibilityEditor && (
-            <Route path="/compatibility-editor" element={<EditorDashboard />} />
-          )}
+          {/* ASIN Importer */}
+          {hasAccess('AsinDirectory') && <Route path="/asin-directory" element={<AsinDirectoryPage />} />}
+          {hasAccess('AsinLists') && <Route path="/asin-lists" element={<AsinListPage />} />}
 
-          {(isSuper || isCompatibilityAdmin || isCompatibilityEditor) && (
-            <>
-              <Route path="/compatibility-dashboard" element={<CompatibilityDashboard />} />
-              <Route path="/compatibility-batch-history" element={<CompatibilityBatchHistoryPage />} />
-              <Route path="/edit-listings" element={<EditListingsDashboard />} />
-            </>
-          )}
+          {/* Listing routes */}
+          {hasAccess('ProductTable') && <Route path="/listing" element={<ListingManagementPage />} />}
+          {hasAccess('Assignments') && <Route path="/assignments" element={<AdminAssignmentsPage />} />}
+          {hasAccess('TaskList') && <Route path="/task-list" element={<TaskListPage />} />}
+          {hasAccess('ListingSheet') && <Route path="/listing-sheet" element={<ListingSheetPage />} />}
+          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks" element={<StoreWiseTaskListPage />} />}
+          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks/details" element={<StoreTaskDetailPage />} />}
+          {hasAccess('StoreDailyTasks') && <Route path="/store-daily-tasks" element={<StoreDailyTasksPage />} />}
+          {hasAccess('ListerInfo') && <Route path="/lister-info" element={<ListerInfoPage />} />}
+          {hasAccess('ListerInfo') && <Route path="/lister-info/details" element={<ListerInfoDetailPage />} />}
+          {hasAccess('RangeAnalyzer') && <Route path="/range-analyzer" element={<RangeAnalyzerPage />} />}
+          {hasAccess('AddUser') && <Route path="/add-user" element={<AddListerPage />} />}
+          {hasAccess('FeedUpload') && <Route path="/feed-upload" element={<FeedUploadPage />} />}
+          {hasAccess('CsvStorage') && <Route path="/csv-storage" element={<CsvStoragePage />} />}
+          {hasAccess('ManagePlatforms') && <Route path="/platforms" element={<ManagePlatformsPage />} />}
+          {hasAccess('ManageStores') && <Route path="/stores" element={<ManageStoresPage />} />}
+          {hasAccess('ListingsSummary') && <Route path="/listings-summary" element={<ListingsSummaryPage />} />}
+          {hasAccess('SellingPrivileges') && <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />}
+          {hasAccess('EbayApiUsage') && <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />}
+          {hasAccess('SellerFunds') && <Route path="/seller-funds" element={<SellerFundsPage />} />}
+          {hasAccess('FeedUploadStats') && <Route path="/feed-upload-stats" element={<FeedUploadStatsPage />} />}
 
-          {/* UPDATED ROUTES FOR ORDERS DEPT */}
-          {(isFulfillmentAdmin || isSuper || isHOC || isComplianceManager) && (
-            <>
-              <Route path="/orders-dashboard" element={<OrdersDepartmentDashboardPage />} />
-              <Route path="/order-analytics" element={<OrderAnalyticsPage />} />
-              <Route path="/worksheet" element={<DisputesPage initialTab={4} />} />
-              <Route path="/seller-analytics" element={<SellerAnalyticsPage />} />
-              <Route path="/fulfillment" element={<FulfillmentDashboard />} />
-              <Route path="/all-orders-sheet" element={<AllOrdersSheetPage />} />
-              <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />
-              <Route path="/awaiting-sheet" element={<AwaitingSheetPage />} />
-              <Route path="/amazon-arrivals" element={<AmazonArrivalsPage />} />
-              <Route path="/fulfillment-notes" element={<FulfillmentNotesPage />} />
-              <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />
-              <Route path="/cancelled-status" element={<DisputesPage initialTab={3} />} />
-              <Route path="/return-requested" element={<DisputesPage initialTab={2} />} />
-              <Route path="/disputes" element={<DisputesPage />} />
-              <Route path="/account-health" element={<AccountHealthReportPage />} />
-              <Route path="/message-received" element={<BuyerChatPage />} />
-              <Route path="/conversation-management" element={<ConversationManagementPage />} />
-              <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />
-              <Route path="/credit-cards" element={<ManageCreditCardsPage />} />
-              <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />
-              <Route path="/affiliate-orders" element={<AffiliateOrdersPage />} />
-            </>
-          )}
+          {/* Finance / Superadmin routes */}
+          {isSuper && <Route path="/user-credentials" element={<UserCredentialsPage />} />}
+          {hasAccess('PayoneerSheet') && <Route path="/payoneer" element={<PayoneerSheetPage />} />}
+          {hasAccess('BankAccounts') && <Route path="/bank-accounts" element={<BankAccountsPage />} />}
+          {hasAccess('Transactions') && <Route path="/transactions" element={<TransactionPage />} />}
+          {hasAccess('ExtraExpenses') && <Route path="/extra-expenses" element={<ExtraExpensePage />} />}
+          {hasAccess('ManageTemplates') && <Route path="/manage-templates" element={<ManageTemplatesPage />} />}
+          {hasAccess('ListingsDatabase') && <Route path="/listings-database" element={<TemplateDatabasePage />} />}
+          {hasAccess('Salary') && <Route path="/salary" element={<SalaryPage />} />}
 
-          {/* Internal Messages - accessible to ALL authenticated users */}
-          <Route path="/internal-messages" element={<InternalMessagesPage />} />
+          {/* Template Listing routes */}
+          {hasAccess('SelectSeller') && <Route path="/template-listings" element={<TemplateListingsPage />} />}
+          {hasAccess('ListingDirectory') && <Route path="/listing-directory" element={<ListingDirectoryPage />} />}
+          {hasAccess('TemplateDirectory') && <Route path="/template-directory" element={<TemplateDirectoryPage />} />}
+          {hasAccess('SelectSeller') && <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />}
+          {hasAccess('SelectSeller') && <Route path="/select-seller" element={<SelectSellerPage />} />}
+          {hasAccess('SelectSeller') && <Route path="/seller-templates" element={<SellerTemplatesPage />} />}
 
-          {/* Internal Messages Admin - accessible to superadmin only */}
-          {isSuper && (
-            <>
-              <Route path="/internal-messages-admin" element={<InternalMessagesAdminPage />} />
-              <Route path="/attendance" element={<AttendanceAdminPage />} />
-            </>
-          )}
+          {/* HR routes */}
+          {hasAccess('EmployeeDetails') && <Route path="/employee-details" element={<EmployeeDetailsPage />} />}
+          {hasAccess('EmployeeManagement') && <Route path="/employee-management" element={<EmployeeManagementPage />} />}
+          {hasAccess('LeaveAdmin') && <Route path="/leave-admin" element={<LeaveAdminPage />} />}
+          {hasAccess('UserSellerAssignments') && <Route path="/user-seller-assignments" element={<UserSellerAssignmentPage />} />}
 
-          {/* User Performance and Assignments */}
-          <Route path="/user-performance" element={<UserPerformancePage />} />
-          {(isSuper || isHRAdmin || user?.role === 'hr') && (
-            <Route path="/user-seller-assignments" element={<UserSellerAssignmentPage />} />
-          )}
+          {/* Compatibility routes */}
+          {hasAccess('AddCompatibilityEditor') && <Route path="/add-compatibility-editor" element={<AddListerPage />} />}
+          {hasAccess('CompatibilityTasks') && <Route path="/compatibility-tasks" element={<AdminTaskList />} />}
+          {hasAccess('CompatibilityProgress') && <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />}
+          {hasAccess('AiFitmentUsage') && <Route path="/ai-fitment-usage" element={<AiFitmentUsagePage />} />}
+          {hasAccess('ListingStats') && <Route path="/listing-stats" element={<ListingStatsPage />} />}
+          {hasAccess('CompatibilityEditor') && <Route path="/compatibility-editor" element={<EditorDashboard />} />}
+          {hasAccess('CompatibilityDashboard') && <Route path="/compatibility-dashboard" element={<CompatibilityDashboard />} />}
+          {hasAccess('CompatibilityBatchHistory') && <Route path="/compatibility-batch-history" element={<CompatibilityBatchHistoryPage />} />}
+          {hasAccess('EditListings') && <Route path="/edit-listings" element={<EditListingsDashboard />} />}
 
-          {/* UPDATED DEFAULT REDIRECT */}
+          {/* Orders Dept routes */}
+          {hasAccess('OrdersDashboard') && <Route path="/orders-dashboard" element={<OrdersDepartmentDashboardPage />} />}
+          {hasAccess('OrderAnalytics') && <Route path="/order-analytics" element={<OrderAnalyticsPage />} />}
+          {hasAccess('Disputes') && <Route path="/worksheet" element={<DisputesPage initialTab={4} />} />}
+          {hasAccess('SellerAnalytics') && <Route path="/seller-analytics" element={<SellerAnalyticsPage />} />}
+          {hasAccess('FulfillmentDashboard') && <Route path="/fulfillment" element={<FulfillmentDashboard />} />}
+          {hasAccess('AllOrdersSheet') && <Route path="/all-orders-sheet" element={<AllOrdersSheetPage />} />}
+          {hasAccess('AwaitingShipment') && <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />}
+          {hasAccess('AwaitingSheet') && <Route path="/awaiting-sheet" element={<AwaitingSheetPage />} />}
+          {hasAccess('AmazonArrivals') && <Route path="/amazon-arrivals" element={<AmazonArrivalsPage />} />}
+          {hasAccess('FulfillmentNotes') && <Route path="/fulfillment-notes" element={<FulfillmentNotesPage />} />}
+          {hasAccess('FulfillmentDashboard') && <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />}
+          {hasAccess('Disputes') && <Route path="/cancelled-status" element={<DisputesPage initialTab={3} />} />}
+          {hasAccess('Disputes') && <Route path="/return-requested" element={<DisputesPage initialTab={2} />} />}
+          {hasAccess('Disputes') && <Route path="/disputes" element={<DisputesPage />} />}
+          {hasAccess('AccountHealth') && <Route path="/account-health" element={<AccountHealthReportPage />} />}
+          {hasAccess('MessageReceived') && <Route path="/message-received" element={<BuyerChatPage />} />}
+          {hasAccess('ConversationManagement') && <Route path="/conversation-management" element={<ConversationManagementPage />} />}
+          {hasAccess('AmazonAccounts') && <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />}
+          {hasAccess('CreditCards') && <Route path="/credit-cards" element={<ManageCreditCardsPage />} />}
+          {hasAccess('CreditCardNames') && <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />}
+          {hasAccess('AffiliateOrders') && <Route path="/affiliate-orders" element={<AffiliateOrdersPage />} />}
+
+          {/* Superadmin-only */}
+          {hasAccess('InternalMessagesAdmin') && <Route path="/internal-messages-admin" element={<InternalMessagesAdminPage />} />}
+          {hasAccess('Attendance') && <Route path="/attendance" element={<AttendanceAdminPage />} />}
+          {hasAccess('UserPermissions') && <Route path="/user-permissions" element={<UserPermissionsPage user={user} />} />}
+
+          {/* Default redirect (keeps existing role-based logic for landing page) */}
           <Route path="*" element={<Navigate to={
             isProductAdmin || isSuper ? "/admin/research" :
               isListingAdmin ? "/admin/listing" :
