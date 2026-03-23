@@ -1,47 +1,45 @@
-import { Box, Alert } from '@mui/material';
+import { Box, Alert, GlobalStyles } from '@mui/material';
 
 /**
  * ReadOnlyGuard
  * 
- * Wraps page content and blocks ALL interactions (clicks, typing, etc.)
- * when the user only has read-only access to the page.
+ * Disables data-editing elements globally (including inside MUI Dialog portals)
+ * when the user has read-only access.
  * 
- * Uses a transparent overlay with pointer-events:none on the content area
- * so the user can still scroll and see the page, but cannot click/type anything.
- * 
- * @param {{ readOnly: boolean, children: React.ReactNode }} props
+ * Blocked: text inputs, number inputs, textareas, selects, checkboxes, switches, radio buttons
+ * Allowed: buttons, links, tabs, pagination — anything used for navigation/viewing
  */
 export default function ReadOnlyGuard({ readOnly, children }) {
   if (!readOnly) return children;
 
   return (
-    <Box sx={{ position: 'relative' }}>
-      <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>
-        🔒 You have read-only access to this page. All interactions are disabled.
-      </Alert>
-      <Box
-        sx={{
-          position: 'relative',
-          '& *': {
+    <>
+      <GlobalStyles
+        styles={{
+          // Disable all text/number inputs and textareas
+          'input, textarea': {
             pointerEvents: 'none !important',
-            userSelect: 'text',
-          },
-          // Re-enable scrolling on containers
-          '& .MuiTableContainer-root, & .MuiDialog-root, & .MuiBox-root': {
-            pointerEvents: 'auto !important',
-          },
-          // But disable clicks on interactive elements inside scrollable areas 
-          '& button, & input, & select, & textarea, & a, & [role="button"], & .MuiSelect-select, & .MuiMenuItem-root, & .MuiIconButton-root, & .MuiButtonBase-root, & .MuiSwitch-root, & .MuiCheckbox-root, & .MuiRadio-root': {
-            pointerEvents: 'none !important',
-            opacity: 0.6,
+            opacity: '0.6 !important',
             cursor: 'not-allowed !important',
           },
-          // Keep scroll functionality
-          overflow: 'auto',
+          // Disable MUI selects
+          '.MuiSelect-select': {
+            pointerEvents: 'none !important',
+            opacity: '0.6 !important',
+            cursor: 'not-allowed !important',
+          },
+          // Disable toggles, checkboxes, radios
+          '.MuiSwitch-root, .MuiCheckbox-root, .MuiRadio-root': {
+            pointerEvents: 'none !important',
+            opacity: '0.6 !important',
+            cursor: 'not-allowed !important',
+          },
         }}
-      >
-        {children}
-      </Box>
-    </Box>
+      />
+      <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>
+        🔒 You have read-only access to this page. Editing is disabled.
+      </Alert>
+      {children}
+    </>
   );
 }
