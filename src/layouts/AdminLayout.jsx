@@ -150,6 +150,7 @@ import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import SecurityIcon from '@mui/icons-material/Security';
 import usePermissions from '../hooks/usePermissions.js';
 import UserPermissionsPage from '../pages/admin/UserPermissionsPage.jsx';
+import ReadOnlyGuard from '../components/ReadOnlyGuard.jsx';
 
 const drawerWidth = 230;
 
@@ -240,7 +241,12 @@ export default function AdminLayout({ user, onLogout }) {
   const isAnyLister = isLister || isAdvanceLister || isTrainee;
 
   // Dynamic page-level permission checks
-  const { hasAccess } = usePermissions(user);
+  const { hasAccess, isReadOnly } = usePermissions(user);
+
+  // Helper: wrap a page element with ReadOnlyGuard for a given pageId
+  const guarded = (pageId, element) => (
+    <ReadOnlyGuard readOnly={isReadOnly(pageId)}>{element}</ReadOnlyGuard>
+  );
 
   const drawer = (
     <div>
@@ -1053,104 +1059,104 @@ export default function AdminLayout({ user, onLogout }) {
         <Toolbar />
         <Routes>
           {/* Universal routes */}
-          <Route path="/ideas" element={<IdeasPage />} />
-          <Route path="/about-me" element={<AboutMePage />} />
-          <Route path="/internal-messages" element={<InternalMessagesPage />} />
-          <Route path="/user-performance" element={<UserPerformancePage />} />
-          <Route path="/my-leaves" element={<LeaveManagementPage />} />
+          <Route path="/ideas" element={guarded('Ideas', <IdeasPage />)} />
+          <Route path="/about-me" element={guarded('AboutMe', <AboutMePage />)} />
+          <Route path="/internal-messages" element={guarded('InternalMessages', <InternalMessagesPage />)} />
+          <Route path="/user-performance" element={guarded('UserPerformance', <UserPerformancePage />)} />
+          <Route path="/my-leaves" element={guarded('MyLeaves', <LeaveManagementPage />)} />
 
           {/* Product routes */}
-          {hasAccess('ProductResearch') && <Route path="/research" element={<ProductResearchPage />} />}
-          {hasAccess('ProductResearch') && <Route path="/ranges" element={<ManageRangesPage />} />}
-          {hasAccess('ManageCategories') && <Route path="/categories" element={<ManageCategoriesPage />} />}
-          {hasAccess('ProductResearch') && <Route path="/amazon-lookup" element={<AmazonLookupPage />} />}
-          {hasAccess('ProductResearch') && <Route path="/product-umbrellas" element={<ManageProductUmbrellasPage />} />}
-          {hasAccess('ProductResearch') && <Route path="/asin-storage" element={<ASINStoragePage />} />}
-          {hasAccess('ProductResearch') && <Route path="/column-creator" element={<ColumnCreatorPage />} />}
+          {hasAccess('ProductResearch') && <Route path="/research" element={guarded('ProductResearch', <ProductResearchPage />)} />}
+          {hasAccess('ProductResearch') && <Route path="/ranges" element={guarded('ProductResearch', <ManageRangesPage />)} />}
+          {hasAccess('ManageCategories') && <Route path="/categories" element={guarded('ManageCategories', <ManageCategoriesPage />)} />}
+          {hasAccess('ProductResearch') && <Route path="/amazon-lookup" element={guarded('ProductResearch', <AmazonLookupPage />)} />}
+          {hasAccess('ProductResearch') && <Route path="/product-umbrellas" element={guarded('ProductResearch', <ManageProductUmbrellasPage />)} />}
+          {hasAccess('ProductResearch') && <Route path="/asin-storage" element={guarded('ProductResearch', <ASINStoragePage />)} />}
+          {hasAccess('ProductResearch') && <Route path="/column-creator" element={guarded('ProductResearch', <ColumnCreatorPage />)} />}
 
           {/* ASIN Importer */}
-          {hasAccess('AsinDirectory') && <Route path="/asin-directory" element={<AsinDirectoryPage />} />}
-          {hasAccess('AsinLists') && <Route path="/asin-lists" element={<AsinListPage />} />}
+          {hasAccess('AsinDirectory') && <Route path="/asin-directory" element={guarded('AsinDirectory', <AsinDirectoryPage />)} />}
+          {hasAccess('AsinLists') && <Route path="/asin-lists" element={guarded('AsinLists', <AsinListPage />)} />}
 
           {/* Listing routes */}
-          {hasAccess('ProductTable') && <Route path="/listing" element={<ListingManagementPage />} />}
-          {hasAccess('Assignments') && <Route path="/assignments" element={<AdminAssignmentsPage />} />}
-          {hasAccess('TaskList') && <Route path="/task-list" element={<TaskListPage />} />}
-          {hasAccess('ListingSheet') && <Route path="/listing-sheet" element={<ListingSheetPage />} />}
-          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks" element={<StoreWiseTaskListPage />} />}
-          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks/details" element={<StoreTaskDetailPage />} />}
-          {hasAccess('StoreDailyTasks') && <Route path="/store-daily-tasks" element={<StoreDailyTasksPage />} />}
-          {hasAccess('ListerInfo') && <Route path="/lister-info" element={<ListerInfoPage />} />}
-          {hasAccess('ListerInfo') && <Route path="/lister-info/details" element={<ListerInfoDetailPage />} />}
-          {hasAccess('RangeAnalyzer') && <Route path="/range-analyzer" element={<RangeAnalyzerPage />} />}
-          {hasAccess('AddUser') && <Route path="/add-user" element={<AddListerPage />} />}
-          {hasAccess('FeedUpload') && <Route path="/feed-upload" element={<FeedUploadPage />} />}
-          {hasAccess('CsvStorage') && <Route path="/csv-storage" element={<CsvStoragePage />} />}
-          {hasAccess('ManagePlatforms') && <Route path="/platforms" element={<ManagePlatformsPage />} />}
-          {hasAccess('ManageStores') && <Route path="/stores" element={<ManageStoresPage />} />}
-          {hasAccess('ListingsSummary') && <Route path="/listings-summary" element={<ListingsSummaryPage />} />}
-          {hasAccess('SellingPrivileges') && <Route path="/selling-privileges" element={<SellingPrivilegesPage />} />}
-          {hasAccess('EbayApiUsage') && <Route path="/ebay-api-usage" element={<EbayApiUsagePage />} />}
-          {hasAccess('SellerFunds') && <Route path="/seller-funds" element={<SellerFundsPage />} />}
-          {hasAccess('FeedUploadStats') && <Route path="/feed-upload-stats" element={<FeedUploadStatsPage />} />}
+          {hasAccess('ProductTable') && <Route path="/listing" element={guarded('ProductTable', <ListingManagementPage />)} />}
+          {hasAccess('Assignments') && <Route path="/assignments" element={guarded('Assignments', <AdminAssignmentsPage />)} />}
+          {hasAccess('TaskList') && <Route path="/task-list" element={guarded('TaskList', <TaskListPage />)} />}
+          {hasAccess('ListingSheet') && <Route path="/listing-sheet" element={guarded('ListingSheet', <ListingSheetPage />)} />}
+          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks" element={guarded('StoreWiseTasks', <StoreWiseTaskListPage />)} />}
+          {hasAccess('StoreWiseTasks') && <Route path="/store-wise-tasks/details" element={guarded('StoreWiseTasks', <StoreTaskDetailPage />)} />}
+          {hasAccess('StoreDailyTasks') && <Route path="/store-daily-tasks" element={guarded('StoreDailyTasks', <StoreDailyTasksPage />)} />}
+          {hasAccess('ListerInfo') && <Route path="/lister-info" element={guarded('ListerInfo', <ListerInfoPage />)} />}
+          {hasAccess('ListerInfo') && <Route path="/lister-info/details" element={guarded('ListerInfo', <ListerInfoDetailPage />)} />}
+          {hasAccess('RangeAnalyzer') && <Route path="/range-analyzer" element={guarded('RangeAnalyzer', <RangeAnalyzerPage />)} />}
+          {hasAccess('AddUser') && <Route path="/add-user" element={guarded('AddUser', <AddListerPage />)} />}
+          {hasAccess('FeedUpload') && <Route path="/feed-upload" element={guarded('FeedUpload', <FeedUploadPage />)} />}
+          {hasAccess('CsvStorage') && <Route path="/csv-storage" element={guarded('CsvStorage', <CsvStoragePage />)} />}
+          {hasAccess('ManagePlatforms') && <Route path="/platforms" element={guarded('ManagePlatforms', <ManagePlatformsPage />)} />}
+          {hasAccess('ManageStores') && <Route path="/stores" element={guarded('ManageStores', <ManageStoresPage />)} />}
+          {hasAccess('ListingsSummary') && <Route path="/listings-summary" element={guarded('ListingsSummary', <ListingsSummaryPage />)} />}
+          {hasAccess('SellingPrivileges') && <Route path="/selling-privileges" element={guarded('SellingPrivileges', <SellingPrivilegesPage />)} />}
+          {hasAccess('EbayApiUsage') && <Route path="/ebay-api-usage" element={guarded('EbayApiUsage', <EbayApiUsagePage />)} />}
+          {hasAccess('SellerFunds') && <Route path="/seller-funds" element={guarded('SellerFunds', <SellerFundsPage />)} />}
+          {hasAccess('FeedUploadStats') && <Route path="/feed-upload-stats" element={guarded('FeedUploadStats', <FeedUploadStatsPage />)} />}
 
           {/* Finance / Superadmin routes */}
           {isSuper && <Route path="/user-credentials" element={<UserCredentialsPage />} />}
-          {hasAccess('PayoneerSheet') && <Route path="/payoneer" element={<PayoneerSheetPage />} />}
-          {hasAccess('BankAccounts') && <Route path="/bank-accounts" element={<BankAccountsPage />} />}
-          {hasAccess('Transactions') && <Route path="/transactions" element={<TransactionPage />} />}
-          {hasAccess('ExtraExpenses') && <Route path="/extra-expenses" element={<ExtraExpensePage />} />}
-          {hasAccess('ManageTemplates') && <Route path="/manage-templates" element={<ManageTemplatesPage />} />}
-          {hasAccess('ListingsDatabase') && <Route path="/listings-database" element={<TemplateDatabasePage />} />}
-          {hasAccess('Salary') && <Route path="/salary" element={<SalaryPage />} />}
+          {hasAccess('PayoneerSheet') && <Route path="/payoneer" element={guarded('PayoneerSheet', <PayoneerSheetPage />)} />}
+          {hasAccess('BankAccounts') && <Route path="/bank-accounts" element={guarded('BankAccounts', <BankAccountsPage />)} />}
+          {hasAccess('Transactions') && <Route path="/transactions" element={guarded('Transactions', <TransactionPage />)} />}
+          {hasAccess('ExtraExpenses') && <Route path="/extra-expenses" element={guarded('ExtraExpenses', <ExtraExpensePage />)} />}
+          {hasAccess('ManageTemplates') && <Route path="/manage-templates" element={guarded('ManageTemplates', <ManageTemplatesPage />)} />}
+          {hasAccess('ListingsDatabase') && <Route path="/listings-database" element={guarded('ListingsDatabase', <TemplateDatabasePage />)} />}
+          {hasAccess('Salary') && <Route path="/salary" element={guarded('Salary', <SalaryPage />)} />}
 
           {/* Template Listing routes */}
-          {hasAccess('SelectSeller') && <Route path="/template-listings" element={<TemplateListingsPage />} />}
-          {hasAccess('ListingDirectory') && <Route path="/listing-directory" element={<ListingDirectoryPage />} />}
-          {hasAccess('TemplateDirectory') && <Route path="/template-directory" element={<TemplateDirectoryPage />} />}
-          {hasAccess('SelectSeller') && <Route path="/template-listing-analytics" element={<TemplateListingAnalyticsPage />} />}
-          {hasAccess('SelectSeller') && <Route path="/select-seller" element={<SelectSellerPage />} />}
-          {hasAccess('SelectSeller') && <Route path="/seller-templates" element={<SellerTemplatesPage />} />}
+          {hasAccess('SelectSeller') && <Route path="/template-listings" element={guarded('SelectSeller', <TemplateListingsPage />)} />}
+          {hasAccess('ListingDirectory') && <Route path="/listing-directory" element={guarded('ListingDirectory', <ListingDirectoryPage />)} />}
+          {hasAccess('TemplateDirectory') && <Route path="/template-directory" element={guarded('TemplateDirectory', <TemplateDirectoryPage />)} />}
+          {hasAccess('SelectSeller') && <Route path="/template-listing-analytics" element={guarded('SelectSeller', <TemplateListingAnalyticsPage />)} />}
+          {hasAccess('SelectSeller') && <Route path="/select-seller" element={guarded('SelectSeller', <SelectSellerPage />)} />}
+          {hasAccess('SelectSeller') && <Route path="/seller-templates" element={guarded('SelectSeller', <SellerTemplatesPage />)} />}
 
           {/* HR routes */}
-          {hasAccess('EmployeeDetails') && <Route path="/employee-details" element={<EmployeeDetailsPage />} />}
-          {hasAccess('EmployeeManagement') && <Route path="/employee-management" element={<EmployeeManagementPage />} />}
-          {hasAccess('LeaveAdmin') && <Route path="/leave-admin" element={<LeaveAdminPage />} />}
-          {hasAccess('UserSellerAssignments') && <Route path="/user-seller-assignments" element={<UserSellerAssignmentPage />} />}
+          {hasAccess('EmployeeDetails') && <Route path="/employee-details" element={guarded('EmployeeDetails', <EmployeeDetailsPage />)} />}
+          {hasAccess('EmployeeManagement') && <Route path="/employee-management" element={guarded('EmployeeManagement', <EmployeeManagementPage />)} />}
+          {hasAccess('LeaveAdmin') && <Route path="/leave-admin" element={guarded('LeaveAdmin', <LeaveAdminPage />)} />}
+          {hasAccess('UserSellerAssignments') && <Route path="/user-seller-assignments" element={guarded('UserSellerAssignments', <UserSellerAssignmentPage />)} />}
 
           {/* Compatibility routes */}
-          {hasAccess('AddCompatibilityEditor') && <Route path="/add-compatibility-editor" element={<AddListerPage />} />}
-          {hasAccess('CompatibilityTasks') && <Route path="/compatibility-tasks" element={<AdminTaskList />} />}
-          {hasAccess('CompatibilityProgress') && <Route path="/compatibility-progress" element={<ProgressTrackingPage />} />}
-          {hasAccess('AiFitmentUsage') && <Route path="/ai-fitment-usage" element={<AiFitmentUsagePage />} />}
-          {hasAccess('ListingStats') && <Route path="/listing-stats" element={<ListingStatsPage />} />}
-          {hasAccess('CompatibilityEditor') && <Route path="/compatibility-editor" element={<EditorDashboard />} />}
-          {hasAccess('CompatibilityDashboard') && <Route path="/compatibility-dashboard" element={<CompatibilityDashboard />} />}
-          {hasAccess('CompatibilityBatchHistory') && <Route path="/compatibility-batch-history" element={<CompatibilityBatchHistoryPage />} />}
-          {hasAccess('EditListings') && <Route path="/edit-listings" element={<EditListingsDashboard />} />}
+          {hasAccess('AddCompatibilityEditor') && <Route path="/add-compatibility-editor" element={guarded('AddCompatibilityEditor', <AddListerPage />)} />}
+          {hasAccess('CompatibilityTasks') && <Route path="/compatibility-tasks" element={guarded('CompatibilityTasks', <AdminTaskList />)} />}
+          {hasAccess('CompatibilityProgress') && <Route path="/compatibility-progress" element={guarded('CompatibilityProgress', <ProgressTrackingPage />)} />}
+          {hasAccess('AiFitmentUsage') && <Route path="/ai-fitment-usage" element={guarded('AiFitmentUsage', <AiFitmentUsagePage />)} />}
+          {hasAccess('ListingStats') && <Route path="/listing-stats" element={guarded('ListingStats', <ListingStatsPage />)} />}
+          {hasAccess('CompatibilityEditor') && <Route path="/compatibility-editor" element={guarded('CompatibilityEditor', <EditorDashboard />)} />}
+          {hasAccess('CompatibilityDashboard') && <Route path="/compatibility-dashboard" element={guarded('CompatibilityDashboard', <CompatibilityDashboard />)} />}
+          {hasAccess('CompatibilityBatchHistory') && <Route path="/compatibility-batch-history" element={guarded('CompatibilityBatchHistory', <CompatibilityBatchHistoryPage />)} />}
+          {hasAccess('EditListings') && <Route path="/edit-listings" element={guarded('EditListings', <EditListingsDashboard />)} />}
 
           {/* Orders Dept routes */}
-          {hasAccess('OrdersDashboard') && <Route path="/orders-dashboard" element={<OrdersDepartmentDashboardPage />} />}
-          {hasAccess('OrderAnalytics') && <Route path="/order-analytics" element={<OrderAnalyticsPage />} />}
-          {hasAccess('Disputes') && <Route path="/worksheet" element={<DisputesPage initialTab={4} />} />}
-          {hasAccess('SellerAnalytics') && <Route path="/seller-analytics" element={<SellerAnalyticsPage />} />}
-          {hasAccess('FulfillmentDashboard') && <Route path="/fulfillment" element={<FulfillmentDashboard />} />}
-          {hasAccess('AllOrdersSheet') && <Route path="/all-orders-sheet" element={<AllOrdersSheetPage />} />}
-          {hasAccess('AwaitingShipment') && <Route path="/awaiting-shipment" element={<AwaitingShipmentPage />} />}
-          {hasAccess('AwaitingSheet') && <Route path="/awaiting-sheet" element={<AwaitingSheetPage />} />}
-          {hasAccess('AmazonArrivals') && <Route path="/amazon-arrivals" element={<AmazonArrivalsPage />} />}
-          {hasAccess('FulfillmentNotes') && <Route path="/fulfillment-notes" element={<FulfillmentNotesPage />} />}
-          {hasAccess('FulfillmentDashboard') && <Route path="/conversation-tracking" element={<ConversationTrackingPage />} />}
-          {hasAccess('Disputes') && <Route path="/cancelled-status" element={<DisputesPage initialTab={3} />} />}
-          {hasAccess('Disputes') && <Route path="/return-requested" element={<DisputesPage initialTab={2} />} />}
-          {hasAccess('Disputes') && <Route path="/disputes" element={<DisputesPage />} />}
-          {hasAccess('AccountHealth') && <Route path="/account-health" element={<AccountHealthReportPage />} />}
-          {hasAccess('MessageReceived') && <Route path="/message-received" element={<BuyerChatPage />} />}
-          {hasAccess('ConversationManagement') && <Route path="/conversation-management" element={<ConversationManagementPage />} />}
-          {hasAccess('AmazonAccounts') && <Route path="/amazon-accounts" element={<ManageAmazonAccountsPage />} />}
-          {hasAccess('CreditCards') && <Route path="/credit-cards" element={<ManageCreditCardsPage />} />}
-          {hasAccess('CreditCardNames') && <Route path="/credit-card-names" element={<ManageCreditCardNamesPage />} />}
-          {hasAccess('AffiliateOrders') && <Route path="/affiliate-orders" element={<AffiliateOrdersPage />} />}
+          {hasAccess('OrdersDashboard') && <Route path="/orders-dashboard" element={guarded('OrdersDashboard', <OrdersDepartmentDashboardPage />)} />}
+          {hasAccess('OrderAnalytics') && <Route path="/order-analytics" element={guarded('OrderAnalytics', <OrderAnalyticsPage />)} />}
+          {hasAccess('Disputes') && <Route path="/worksheet" element={guarded('Disputes', <DisputesPage initialTab={4} />)} />}
+          {hasAccess('SellerAnalytics') && <Route path="/seller-analytics" element={guarded('SellerAnalytics', <SellerAnalyticsPage />)} />}
+          {hasAccess('FulfillmentDashboard') && <Route path="/fulfillment" element={guarded('FulfillmentDashboard', <FulfillmentDashboard />)} />}
+          {hasAccess('AllOrdersSheet') && <Route path="/all-orders-sheet" element={guarded('AllOrdersSheet', <AllOrdersSheetPage />)} />}
+          {hasAccess('AwaitingShipment') && <Route path="/awaiting-shipment" element={guarded('AwaitingShipment', <AwaitingShipmentPage />)} />}
+          {hasAccess('AwaitingSheet') && <Route path="/awaiting-sheet" element={guarded('AwaitingSheet', <AwaitingSheetPage />)} />}
+          {hasAccess('AmazonArrivals') && <Route path="/amazon-arrivals" element={guarded('AmazonArrivals', <AmazonArrivalsPage />)} />}
+          {hasAccess('FulfillmentNotes') && <Route path="/fulfillment-notes" element={guarded('FulfillmentNotes', <FulfillmentNotesPage />)} />}
+          {hasAccess('FulfillmentDashboard') && <Route path="/conversation-tracking" element={guarded('FulfillmentDashboard', <ConversationTrackingPage />)} />}
+          {hasAccess('Disputes') && <Route path="/cancelled-status" element={guarded('Disputes', <DisputesPage initialTab={3} />)} />}
+          {hasAccess('Disputes') && <Route path="/return-requested" element={guarded('Disputes', <DisputesPage initialTab={2} />)} />}
+          {hasAccess('Disputes') && <Route path="/disputes" element={guarded('Disputes', <DisputesPage />)} />}
+          {hasAccess('AccountHealth') && <Route path="/account-health" element={guarded('AccountHealth', <AccountHealthReportPage />)} />}
+          {hasAccess('MessageReceived') && <Route path="/message-received" element={guarded('MessageReceived', <BuyerChatPage />)} />}
+          {hasAccess('ConversationManagement') && <Route path="/conversation-management" element={guarded('ConversationManagement', <ConversationManagementPage />)} />}
+          {hasAccess('AmazonAccounts') && <Route path="/amazon-accounts" element={guarded('AmazonAccounts', <ManageAmazonAccountsPage />)} />}
+          {hasAccess('CreditCards') && <Route path="/credit-cards" element={guarded('CreditCards', <ManageCreditCardsPage />)} />}
+          {hasAccess('CreditCardNames') && <Route path="/credit-card-names" element={guarded('CreditCardNames', <ManageCreditCardNamesPage />)} />}
+          {hasAccess('AffiliateOrders') && <Route path="/affiliate-orders" element={guarded('AffiliateOrders', <AffiliateOrdersPage />)} />}
 
           {/* Superadmin-only */}
           {hasAccess('InternalMessagesAdmin') && <Route path="/internal-messages-admin" element={<InternalMessagesAdminPage />} />}
