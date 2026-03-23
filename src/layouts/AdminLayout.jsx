@@ -688,7 +688,7 @@ export default function AdminLayout({ user, onLogout }) {
         )}
 
         {/* Orders Dept Dropdown */}
-        {(hasAccess('OrdersDashboard') || hasAccess('FulfillmentDashboard') || hasAccess('Disputes')) && (
+        {(hasAccess('OrdersDashboard') || hasAccess('OrderAnalytics') || hasAccess('SellerAnalytics') || hasAccess('FulfillmentDashboard') || hasAccess('AllOrdersSheet') || hasAccess('AwaitingShipment') || hasAccess('AwaitingSheet') || hasAccess('AmazonArrivals') || hasAccess('FulfillmentNotes') || hasAccess('Disputes') || hasAccess('AccountHealth') || hasAccess('MessageReceived') || hasAccess('ConversationManagement') || hasAccess('AmazonAccounts') || hasAccess('CreditCards') || hasAccess('CreditCardNames') || hasAccess('AffiliateOrders')) && (
           <>
             <ListItem disablePadding>
               <ListItemButton
