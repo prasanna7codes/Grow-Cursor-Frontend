@@ -89,6 +89,7 @@ export const PAGE_REGISTRY = [
   { id: 'Salary', name: 'Salary Page', path: '/salary', category: 'finance', defaultRoles: ['superadmin'] },
   { id: 'AllOrdersSheet', name: 'All Orders USD', path: '/all-orders-sheet', category: 'finance', defaultRoles: ['superadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
   { id: 'PriceChangeHistory', name: 'Price Change History', path: '/price-change-history', category: 'finance', defaultRoles: ['superadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
+  { id: 'PriceChangeOrderCheck', name: 'Price Change Order Check', path: '/price-change-order-check', category: 'finance', defaultRoles: ['superadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
   { id: 'SellerAnalytics', name: 'Seller Analytics', path: '/seller-analytics', category: 'finance', defaultRoles: ['superadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
 
   // ====== COMPLIANCE & SUPPORT ======

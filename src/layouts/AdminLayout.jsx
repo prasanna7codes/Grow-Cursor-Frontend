@@ -64,6 +64,7 @@ import AutoCompatSellerHistoryPage from '../pages/compatibility/AutoCompatSeller
 import FulfillmentDashboard from '../pages/admin/FulfillmentDashboard.jsx';
 import AllOrdersSheetPage from '../pages/admin/AllOrdersSheetPage.jsx';
 import PriceChangeHistoryPage from '../pages/admin/PriceChangeHistoryPage.jsx';
+import PriceChangeOrderCheckPage from '../pages/admin/PriceChangeOrderCheckPage.jsx';
 import AwaitingShipmentPage from '../pages/admin/AwaitingShipmentPage.jsx';
 import AwaitingSheetPage from '../pages/admin/AwaitingSheetPage.jsx';
 import AmazonArrivalsPage from '../pages/admin/AmazonArrivalsPage.jsx';
@@ -284,6 +285,7 @@ const COMPONENT_MAP = {
   'Salary': SalaryPage,
   'AllOrdersSheet': AllOrdersSheetPage,
   'PriceChangeHistory': PriceChangeHistoryPage,
+  'PriceChangeOrderCheck': PriceChangeOrderCheckPage,
   'SellerAnalytics': SellerAnalyticsPage,
   'Disputes': DisputesPage,
   'AccountHealth': AccountHealthReportPage,
