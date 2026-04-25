@@ -201,7 +201,7 @@ const PriceChangeOrderCheckPage = () => {
       'Difference',
       'Matched Orders After Change',
       'First Matched Order ID',
-      'First Matched Order Date (UTC)',
+      'First Matched Order Date (IST)',
       'Latest Matched Order ID',
       'Latest Matched Order Date (IST)',
       'Product Title'
@@ -220,7 +220,7 @@ const PriceChangeOrderCheckPage = () => {
         row.priceDifference ?? '',
         row.matchedOrderCount ?? 0,
         row.firstMatchedOrder?.orderId || 'N/A',
-        formatUtcDate(row.firstMatchedOrder?.orderDate),
+        formatIstDate(row.firstMatchedOrder?.orderDate),
         row.latestMatchedOrder?.orderId || 'N/A',
         formatIstDate(row.latestMatchedOrder?.orderDate),
         row.productTitle || 'N/A'
@@ -250,7 +250,7 @@ const PriceChangeOrderCheckPage = () => {
         </Typography>
 
         <Alert severity="info" sx={{ mb: 2 }}>
-          This page only includes successful price changes from the All Orders Sheet. The comparison checks whether an order with the same legacy item id was created after the price change time using stored UTC timestamps, while Changed At and Latest Match are displayed in IST.
+          This page only includes successful price changes from the All Orders Sheet. The comparison checks whether an order with the same legacy item id was created after the price change time using stored UTC timestamps, while Changed At, First Match, and Latest Match are displayed in IST.
         </Alert>
 
         <Paper sx={{ p: 2, mb: 2 }}>
@@ -455,7 +455,7 @@ const PriceChangeOrderCheckPage = () => {
                                   </Tooltip>
                                 </Stack>
                                 <Typography variant="caption" color="text.secondary">
-                                  {formatUtcDate(row.firstMatchedOrder.orderDate)}
+                                  {formatIstDate(row.firstMatchedOrder.orderDate)}
                                 </Typography>
                               </Stack>
                             ) : 'N/A'}
