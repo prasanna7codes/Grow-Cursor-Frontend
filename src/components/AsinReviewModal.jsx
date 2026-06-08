@@ -171,6 +171,33 @@ function getMatchedKnownImageUrls(htmlContent, imageUrls = []) {
   return uniqueImageUrls.filter(url => htmlContent.includes(url));
 }
 
+function formatDurationMs(value) {
+  if (!Number.isFinite(value)) return null;
+  if (value < 1000) return `${Math.max(0, Math.round(value))}ms`;
+  return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}s`;
+}
+
+function getLoadingProgressText(item) {
+  if (!item) return 'Preparing item.';
+
+  const queueWait = formatDurationMs(item.timings?.queueWaitMs);
+  const amazonFetch = formatDurationMs(item.timings?.amazonFetchMs);
+
+  if (item.progressStage === 'generating') {
+    return amazonFetch
+      ? `Amazon data loaded in ${amazonFetch}. Generating listing fields now.`
+      : 'Amazon data is loaded. Generating listing fields now.';
+  }
+
+  if (item.progressStage === 'queued') {
+    return 'Queued for processing. It will start when a bulk worker is available.';
+  }
+
+  return queueWait
+    ? `Fetching Amazon product data. Queue wait was ${queueWait}.`
+    : 'Fetching Amazon product data.';
+}
+
 export default function AsinReviewModal({ 
   open, 
   onClose, 
@@ -1006,7 +1033,7 @@ export default function AsinReviewModal({
                   <Stack spacing={2}>
                     {currentItem.status === 'loading' && (
                       <Alert severity="info" variant="outlined">
-                        Amazon data is ready. Generated listing fields are still being prepared.
+                        {getLoadingProgressText(currentItem)}
                       </Alert>
                     )}
                     <Box>
@@ -1247,12 +1274,45 @@ export default function AsinReviewModal({
                         />
                       </Stack>
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        {currentItem.progressStage === 'generating'
-                          ? 'Amazon data is loaded. Generating listing fields now.'
-                          : currentItem.progressStage === 'queued'
-                            ? 'Queued for processing.'
-                            : 'Fetching Amazon product data.'}
+                        {getLoadingProgressText(currentItem)}
                       </Typography>
+                      {(currentItem.progressMeta || currentItem.timings) && (
+                        <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }} useFlexGap>
+                          {currentItem.progressMeta && (
+                            <>
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={`${currentItem.progressMeta.completed}/${currentItem.progressMeta.total} complete`}
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={`${currentItem.progressMeta.active} active`}
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={`${currentItem.progressMeta.queued} queued`}
+                              />
+                            </>
+                          )}
+                          {formatDurationMs(currentItem.timings?.queueWaitMs) && (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={`Queue ${formatDurationMs(currentItem.timings.queueWaitMs)}`}
+                            />
+                          )}
+                          {formatDurationMs(currentItem.timings?.amazonFetchMs) && (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={`Amazon ${formatDurationMs(currentItem.timings.amazonFetchMs)}`}
+                            />
+                          )}
+                        </Stack>
+                      )}
                     </Box>
                   </Stack>
                 ) : currentItem.generatedListing ? (

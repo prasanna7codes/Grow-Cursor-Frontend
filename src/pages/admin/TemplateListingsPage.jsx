@@ -841,6 +841,8 @@ export default function TemplateListingsPage() {
         sku: `${sellerId}-${asin}`,
         status: 'loading',
         progressStage: 'queued',
+        timings: null,
+        progressMeta: null,
         sourceData: null,
         generatedListing: null,
         pricingCalculation: null,
@@ -900,7 +902,9 @@ export default function TemplateListingsPage() {
                       ...item,
                       id: message.id || item.id,
                       status: 'loading',
-                      progressStage: message.progressStage || 'fetching'
+                      progressStage: message.progressStage || 'fetching',
+                      timings: message.timings || item.timings || null,
+                      progressMeta: message.progressMeta || item.progressMeta || null
                     }
                   : item
               )));
@@ -914,7 +918,9 @@ export default function TemplateListingsPage() {
                       id: message.id || item.id,
                       status: 'loading',
                       progressStage: message.progressStage || 'generating',
-                      sourceData: message.sourceData || item.sourceData
+                      sourceData: message.sourceData || item.sourceData,
+                      timings: message.timings || item.timings || null,
+                      progressMeta: message.progressMeta || item.progressMeta || null
                     }
                   : item
               )));
@@ -928,7 +934,8 @@ export default function TemplateListingsPage() {
                 if (index !== -1) {
                   updated[index] = {
                     ...message.item,
-                    progressStage: message.item.progressStage || 'complete'
+                    progressStage: message.item.progressStage || 'complete',
+                    progressMeta: message.progressMeta || message.item.progressMeta || null
                   };
                 }
                 return updated;
@@ -941,10 +948,13 @@ export default function TemplateListingsPage() {
               const statusIcon = message.item.status === 'success' ? '✅' : 
                                  message.item.status === 'error' ? '❌' : 
                                  message.item.status === 'blocked' ? '🚫' : '⚠️';
+              const timingSummary = message.item.timings?.totalMs
+                ? `, item ${Math.round(message.item.timings.totalMs / 1000)}s`
+                : '';
               
               setProcessingLog(prev => [
                 ...prev,
-                `${statusIcon} ${message.item.asin} (${message.progress}/${message.total}, ${elapsedTime}s)`
+                `${statusIcon} ${message.item.asin} (${message.progress}/${message.total}, ${elapsedTime}s${timingSummary})`
               ]);
               break;
               
