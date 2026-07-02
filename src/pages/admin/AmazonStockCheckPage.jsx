@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -15,6 +16,7 @@ import {
   DialogTitle,
   FormControlLabel,
   Grid,
+  IconButton,
   MenuItem,
   Paper,
   Select,
@@ -29,6 +31,7 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -37,9 +40,12 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import EditIcon from '@mui/icons-material/Edit';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import LockPersonIcon from '@mui/icons-material/LockPerson';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import { BRAND_DARK } from '../../constants/brandTheme';
+
+const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
 
 const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'United States', credits: 1 },
@@ -130,6 +136,17 @@ function getRunScope(run) {
 }
 
 export default function AmazonStockCheckPage() {
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isSuperAdmin = user?.role === 'superadmin';
+
+  const [canRun, setCanRun] = useState(isSuperAdmin);
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [allowedUsers, setAllowedUsers] = useState([]);
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [loadingAccess, setLoadingAccess] = useState(false);
+
   const [mode, setMode] = useState('pilot_option_b');
   const [currencies, setCurrencies] = useState(['USD']);
   const [threshold, setThreshold] = useState(10);
@@ -198,6 +215,46 @@ export default function AmazonStockCheckPage() {
       setPagination((prev) => ({ ...prev, ...(itemsData.pagination || {}) }));
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to load run details');
+    }
+  };
+
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    api.get(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}/check`)
+      .then(({ data }) => setCanRun(Boolean(data?.allowed)))
+      .catch(() => setCanRun(false));
+  }, []);
+
+  const openAccessDialog = async () => {
+    setAccessDialogOpen(true);
+    setLoadingAccess(true);
+    try {
+      const [{ data: usersData }, { data: permissionData }] = await Promise.all([
+        api.get('/users'),
+        api.get(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}`)
+      ]);
+      setAllUsers(usersData || []);
+      setAllowedUsers(permissionData?.allowedUserIds || []);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to load access settings');
+    } finally {
+      setLoadingAccess(false);
+    }
+  };
+
+  const saveAccess = async () => {
+    setSavingAccess(true);
+    try {
+      const { data } = await api.put(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}`, {
+        allowedUserIds: allowedUsers.map((u) => u._id)
+      });
+      setAllowedUsers(data?.allowedUserIds || []);
+      setSuccess('Access list updated.');
+      setAccessDialogOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to save access settings');
+    } finally {
+      setSavingAccess(false);
     }
   };
 
@@ -455,24 +512,35 @@ export default function AmazonStockCheckPage() {
             />
           </Grid>
           <Grid item xs={12} md={2}>
-            <Stack direction="row" spacing={1} sx={{ mt: { md: 2 } }}>
-              <Button
-                variant="outlined"
-                startIcon={loadingEstimate ? <CircularProgress size={16} /> : <RefreshIcon />}
-                onClick={handleEstimate}
-                disabled={loadingEstimate || starting || isRunning}
-              >
-                Estimate
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
-                onClick={handleStart}
-                disabled={starting || isRunning}
-                sx={{ backgroundColor: BRAND_DARK }}
-              >
-                Start
-              </Button>
+            <Stack direction="row" spacing={1} sx={{ mt: { md: 2 } }} alignItems="center">
+              {canRun && (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={loadingEstimate ? <CircularProgress size={16} /> : <RefreshIcon />}
+                    onClick={handleEstimate}
+                    disabled={loadingEstimate || starting || isRunning}
+                  >
+                    Estimate
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
+                    onClick={handleStart}
+                    disabled={starting || isRunning}
+                    sx={{ backgroundColor: BRAND_DARK }}
+                  >
+                    Start
+                  </Button>
+                </>
+              )}
+              {isSuperAdmin && (
+                <Tooltip title="Manage who can Estimate/Start runs">
+                  <IconButton size="small" onClick={openAccessDialog}>
+                    <LockPersonIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             </Stack>
           </Grid>
         </Grid>
@@ -833,6 +901,45 @@ export default function AmazonStockCheckPage() {
         <DialogActions>
           <Button onClick={() => setReviseTarget(null)}>Cancel</Button>
           <Button variant="contained" onClick={handleReviseListing} sx={{ backgroundColor: BRAND_DARK }}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={accessDialogOpen} onClose={() => setAccessDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Manage Estimate/Start Access</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Superadmins always have access. Select which other users can also run Estimate/Start on this page.
+            </Typography>
+            {loadingAccess ? (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="text.secondary">Loading...</Typography>
+              </Stack>
+            ) : (
+              <Autocomplete
+                multiple
+                options={allUsers}
+                value={allowedUsers}
+                onChange={(_, value) => setAllowedUsers(value)}
+                getOptionLabel={(option) => option?.username ? `${option.username} (${option.role})` : ''}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                renderInput={(params) => <TextField {...params} label="Allowed users" placeholder="Select users" />}
+              />
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAccessDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={saveAccess}
+            disabled={savingAccess || loadingAccess}
+            startIcon={savingAccess ? <CircularProgress size={16} color="inherit" /> : undefined}
+            sx={{ backgroundColor: BRAND_DARK }}
+          >
+            Save
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
