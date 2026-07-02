@@ -561,6 +561,7 @@ export default function AmazonStockCheckPage() {
           <Grid item xs={6} md={2}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={isFilterActive('low_stock')} onClick={() => applyFilter('low_stock')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={isFilterActive('out_of_stock')} onClick={() => applyFilter('out_of_stock')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Qty Zero Success" value={activeRun.quantityZeroSuccessCount} tone="good" active={isFilterActive('qty_zero_success')} onClick={() => applyFilter('qty_zero_success')} /></Grid>
+          <Grid item xs={6} md={2}><KpiCard label="Qty Zero Failed" value={itemCounts.qty_zero_failed || 0} tone="bad" active={isFilterActive('qty_zero_failed')} onClick={() => applyFilter('qty_zero_failed')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Credits Used" value={activeRun.creditsUsed} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="No ASIN" value={activeRun.noAsinCount} active={isFilterActive('no_asin')} onClick={() => applyFilter('no_asin')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Became Available" value={activeRun.becameAvailableCount} tone="good" active={isFilterActive('restocked')} onClick={() => applyFilter('restocked')} /></Grid>
