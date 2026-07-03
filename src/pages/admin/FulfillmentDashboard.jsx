@@ -1596,6 +1596,8 @@ function FulfillmentDashboard() {
   const [utcRefreshEndDate, setUtcRefreshEndDate] = useState(todayUTC);
   const [utcRefreshConfirmOpen, setUtcRefreshConfirmOpen] = useState(false);
   const utcRefreshClickTimeRef = useRef(null);
+  const [ptRefreshPreview, setPtRefreshPreview] = useState(null);
+  const [ptRefreshPreviewLoading, setPtRefreshPreviewLoading] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyLogs, setHistoryLogs] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -2629,6 +2631,31 @@ function FulfillmentDashboard() {
     }
   }
 
+  async function fetchPtRefreshPreview() {
+    const endDate = utcRefreshMode === 'single'
+      ? utcRefreshStartDate
+      : (utcRefreshEndDate || utcRefreshStartDate);
+
+    setPtRefreshPreviewLoading(true);
+    setPtRefreshPreview(null);
+    try {
+      const { data } = await api.get('/ebay/pt-refresh-preview', {
+        params: {
+          startDate: utcRefreshStartDate,
+          endDate,
+          dateMode: utcRefreshMode,
+          ...(selectedSeller ? { sellerId: selectedSeller } : {})
+        }
+      });
+      setPtRefreshPreview(data || null);
+    } catch (e) {
+      const message = e?.response?.data?.error || 'Failed to check seller tokens and order count';
+      setPtRefreshPreview({ error: message });
+    } finally {
+      setPtRefreshPreviewLoading(false);
+    }
+  }
+
   function handleOpenUtcRefreshConfirm() {
     const endDate = utcRefreshMode === 'single'
       ? utcRefreshStartDate
@@ -2643,6 +2670,7 @@ function FulfillmentDashboard() {
 
     utcRefreshClickTimeRef.current = new Date().toISOString();
     setUtcRefreshConfirmOpen(true);
+    fetchPtRefreshPreview();
   }
 
   async function handleConfirmUtcRefresh() {
@@ -5379,6 +5407,60 @@ function FulfillmentDashboard() {
               <Typography variant="body2" color="text.secondary">
                 New eBay orders will be ignored. Existing matching orders may have eBay fields, totals, earnings, and profit-related values recalculated.
               </Typography>
+
+              {ptRefreshPreviewLoading && (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Checking seller tokens and order count...
+                  </Typography>
+                </Stack>
+              )}
+
+              {!ptRefreshPreviewLoading && ptRefreshPreview?.error && (
+                <Alert severity="error">{ptRefreshPreview.error}</Alert>
+              )}
+
+              {!ptRefreshPreviewLoading && ptRefreshPreview && !ptRefreshPreview.error && (
+                <>
+                  <Typography variant="body2" fontWeight={600}>
+                    This will fetch ~{ptRefreshPreview.totalPreviewCount} order{ptRefreshPreview.totalPreviewCount === 1 ? '' : 's'} from{' '}
+                    {ptRefreshPreview.sellers.filter(s => s.tokenStatus === 'active' || s.tokenStatus === 'refreshed').length} of{' '}
+                    {ptRefreshPreview.sellers.length} seller{ptRefreshPreview.sellers.length === 1 ? '' : 's'}.
+                  </Typography>
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                    {ptRefreshPreview.sellers.map(s => (
+                      <Tooltip key={s.sellerId} title={s.error || ''} disableHoverListener={!s.error}>
+                        <Chip
+                          size="small"
+                          icon={s.tokenStatus === 'active' || s.tokenStatus === 'refreshed' ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : undefined}
+                          label={`${s.sellerName}${s.tokenStatus === 'refreshed' ? ' (refreshed)' : ''}${s.orderCountPreview != null ? `: ${s.orderCountPreview}` : ''}`}
+                          color={
+                            s.tokenStatus === 'active' || s.tokenStatus === 'refreshed'
+                              ? 'success'
+                              : 'error'
+                          }
+                          variant="outlined"
+                        />
+                      </Tooltip>
+                    ))}
+                  </Stack>
+                  {ptRefreshPreview.sellersNeedingAttention.length > 0 && (
+                    <Alert severity="warning">
+                      <Typography variant="body2" fontWeight={600}>
+                        {ptRefreshPreview.sellersNeedingAttention.length} seller{ptRefreshPreview.sellersNeedingAttention.length === 1 ? '' : 's'} will be skipped and won't have orders refreshed:
+                      </Typography>
+                      <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                        {ptRefreshPreview.sellersNeedingAttention.map(s => (
+                          <Typography key={s.sellerId} variant="caption" component="div">
+                            {s.sellerName} ({s.tokenStatus === 'needs_reconnect' ? 'needs eBay reconnect' : 'fetch failed'}){s.error ? `: ${s.error}` : ''}
+                          </Typography>
+                        ))}
+                      </Stack>
+                    </Alert>
+                  )}
+                </>
+              )}
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
