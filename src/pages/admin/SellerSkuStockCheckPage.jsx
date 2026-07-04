@@ -4,6 +4,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Collapse,
@@ -45,7 +46,7 @@ const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
 // the side-by-side review window synchronously on click (popup-blocker safe).
 const AMAZON_DOMAINS = { USD: 'com', AUD: 'com.au', CAD: 'ca', GBP: 'co.uk' };
 
-const VERIFY_DRAWER_WIDTH = 560;
+const VERIFY_DRAWER_WIDTH = 700;
 
 function getAmazonUrl(item) {
   const domain = AMAZON_DOMAINS[String(item?.currency || '').toUpperCase()];
@@ -126,7 +127,42 @@ function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
   );
 }
 
-function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }) {
+function formatMonthLabel(monthKey) {
+  const [year, month] = String(monthKey).split('-').map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+}
+
+// 12-month order-count sparkline: single hue, baseline-anchored bars,
+// per-month tooltip; zero months render as a light stub so the timeline
+// stays readable.
+function OrderSparkline({ monthly = [] }) {
+  if (!monthly.length) return null;
+  const max = Math.max(1, ...monthly.map((m) => m.count));
+  return (
+    <Stack
+      direction="row"
+      spacing="2px"
+      alignItems="flex-end"
+      sx={{ height: 26, px: 0.5 }}
+      aria-label="Orders per month, last 12 months"
+    >
+      {monthly.map((m) => (
+        <Tooltip key={m.month} title={`${formatMonthLabel(m.month)}: ${m.count} order${m.count === 1 ? '' : 's'}`}>
+          <Box
+            sx={{
+              width: 7,
+              height: m.count ? Math.max(4, Math.round((m.count / max) * 24)) : 2,
+              bgcolor: m.count ? '#2563eb' : '#e2e8f0',
+              borderRadius: '1px 1px 0 0'
+            }}
+          />
+        </Tooltip>
+      ))}
+    </Stack>
+  );
+}
+
+function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem, selectedIds, onToggleSelect }) {
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
@@ -139,9 +175,17 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
       )}
       {rows.map((row) => {
         const endedInfo = endedItems[row.itemId] || row.endedInfo;
+        const busy = endingItemId === row.itemId;
         return (
           <Paper key={`${row.sellerId}-${row.itemId}`} variant="outlined" sx={{ p: 1.25, mb: 1, borderRadius: 2 }}>
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Checkbox
+                size="small"
+                sx={{ p: 0.25 }}
+                disabled={Boolean(endedInfo) || busy}
+                checked={selectedIds.has(row.itemId)}
+                onChange={() => onToggleSelect(row)}
+              />
               <Chip size="small" label={row.sellerName} sx={{ fontWeight: 800 }} />
               <Button
                 size="small"
@@ -150,20 +194,14 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
                 href={`https://www.ebay.com/itm/${row.itemId}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                sx={{ fontFamily: 'monospace', fontWeight: 800 }}
               >
                 {row.itemId}
               </Button>
-              <Typography variant="body2" sx={{ flex: 1, minWidth: 160 }} noWrap title={row.title}>
-                {row.title || '-'}
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+              <Box sx={{ flex: 1 }} />
+              <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
                 {row.price != null ? `${row.price} ${row.currency}` : '-'}
               </Typography>
-              <Chip
-                size="small"
-                color={row.orderCount30d > 0 ? 'warning' : 'default'}
-                label={`${formatNumber(row.orderCount30d)} orders / 30d`}
-              />
               {endedInfo ? (
                 <Tooltip title={`Ended by ${endedInfo.endedBy || 'unknown'} on ${formatDateTime(endedInfo.endedAt)}`}>
                   <Chip size="small" color="error" label="Ended" sx={{ fontWeight: 800 }} />
@@ -173,13 +211,31 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
                   size="small"
                   color="error"
                   variant="outlined"
-                  startIcon={endingItemId === row.itemId ? <CircularProgress size={14} color="inherit" /> : <CancelIcon />}
-                  disabled={endingItemId === row.itemId}
+                  startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CancelIcon />}
+                  disabled={busy}
                   onClick={() => onEndItem(row)}
                 >
                   End Listing
                 </Button>
               )}
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }} noWrap title={row.title}>
+              {row.title || '-'}
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.75 }}>
+              <Chip
+                size="small"
+                color={row.orderCount30d > 0 ? 'warning' : 'default'}
+                label={`${formatNumber(row.orderCount30d)} / 30d`}
+                sx={{ fontWeight: 800 }}
+              />
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`${formatNumber(row.lifetimeOrderCount || 0)} lifetime`}
+                sx={{ fontWeight: 800 }}
+              />
+              <OrderSparkline monthly={row.monthlyOrders} />
             </Stack>
             {endedInfo && (
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.main', fontWeight: 700 }}>
@@ -232,6 +288,8 @@ export default function SellerSkuStockCheckPage() {
   const [verifyIndex, setVerifyIndex] = useState(-1);
   const [endedItems, setEndedItems] = useState({});
   const [endingItemId, setEndingItemId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkEnding, setBulkEnding] = useState(false);
   const amazonWinRef = useRef(null);
   // Set when Next/Prev crosses a page boundary: verify the first/last row once
   // the new page of items loads.
@@ -408,6 +466,7 @@ export default function SellerSkuStockCheckPage() {
     setVerifyData(null);
     setVerifyIndex(index);
     setEndedItems({});
+    setSelectedIds(new Set());
     // Open Amazon synchronously with a client-built URL so popup blockers
     // treat it as user-initiated; the verify data fetch follows.
     openAmazonWindow(getAmazonUrl(item));
@@ -510,6 +569,64 @@ export default function SellerSkuStockCheckPage() {
       setError(err.response?.data?.error || err.response?.data?.details || 'Failed to end item');
     } finally {
       setEndingItemId(null);
+    }
+  };
+
+  const toggleSelect = (row) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(row.itemId)) next.delete(row.itemId);
+      else next.add(row.itemId);
+      return next;
+    });
+  };
+
+  const selectNoOrderItems = () => {
+    const ids = (verifyData?.sellerItems || [])
+      .filter((row) => row.orderCount30d === 0 && !(endedItems[row.itemId] || row.endedInfo))
+      .map((row) => row.itemId);
+    setSelectedIds(new Set(ids));
+  };
+
+  const handleEndSelected = async () => {
+    const rows = (verifyData?.sellerItems || [])
+      .filter((row) => selectedIds.has(row.itemId) && !(endedItems[row.itemId] || row.endedInfo));
+    if (!rows.length) return;
+    if (!window.confirm(`End ${rows.length} listing(s)? This cannot be undone.`)) return;
+    setError('');
+    setSuccess('');
+    setBulkEnding(true);
+    let okCount = 0;
+    const failures = [];
+    for (const row of rows) {
+      setEndingItemId(row.itemId);
+      try {
+        await api.post('/ebay/end-item', {
+          sellerId: row.sellerId,
+          itemId: row.itemId,
+          source: 'amazon_stock_check',
+          sku: verifyData?.sku || '',
+          country: verifyData?.country || ''
+        });
+        okCount += 1;
+        setEndedItems((prev) => ({
+          ...prev,
+          [row.itemId]: {
+            endedAt: new Date().toISOString(),
+            endedBy: user?.username || user?.name || user?.email || 'you'
+          }
+        }));
+      } catch (err) {
+        failures.push(row.itemId);
+      }
+    }
+    setEndingItemId(null);
+    setBulkEnding(false);
+    setSelectedIds(new Set());
+    if (failures.length) {
+      setError(`Ended ${okCount} listing(s); failed for: ${failures.join(', ')}`);
+    } else {
+      setSuccess(`Ended ${okCount} listing(s).`);
     }
   };
 
@@ -968,12 +1085,33 @@ export default function SellerSkuStockCheckPage() {
           )}
           {verifyData && !verifyLoading && (
             <Stack spacing={2}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button size="small" variant="outlined" disabled={bulkEnding} onClick={selectNoOrderItems}>
+                  Select 0-order (30d)
+                </Button>
+                <Button size="small" disabled={!selectedIds.size || bulkEnding} onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  color="error"
+                  variant="contained"
+                  disabled={!selectedIds.size || bulkEnding}
+                  startIcon={bulkEnding ? <CircularProgress size={14} color="inherit" /> : <CancelIcon />}
+                  onClick={handleEndSelected}
+                >
+                  End Selected ({selectedIds.size})
+                </Button>
+              </Stack>
               <SellerItemsSection
                 title={`This seller${selectedSeller ? ` — ${getSellerLabel(selectedSeller)}` : ''}`}
                 rows={verifySellerRows.runSeller}
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
               />
               <Divider />
               <SellerItemsSection
@@ -982,6 +1120,8 @@ export default function SellerSkuStockCheckPage() {
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
               />
             </Stack>
           )}
