@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Autocomplete,
@@ -7,12 +7,11 @@ import {
   Chip,
   CircularProgress,
   Collapse,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   Divider,
+  Drawer,
   Grid,
   IconButton,
+  LinearProgress,
   Paper,
   Snackbar,
   Stack,
@@ -34,11 +33,25 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import CloseIcon from '@mui/icons-material/Close';
 import CancelIcon from '@mui/icons-material/Cancel';
+import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import { BRAND_DARK } from '../../constants/brandTheme';
 
 const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
+
+// Amazon marketplace domain per currency, used to open the product page in
+// the side-by-side review window synchronously on click (popup-blocker safe).
+const AMAZON_DOMAINS = { USD: 'com', AUD: 'com.au', CAD: 'ca', GBP: 'co.uk' };
+
+const VERIFY_DRAWER_WIDTH = 560;
+
+function getAmazonUrl(item) {
+  const domain = AMAZON_DOMAINS[String(item?.currency || '').toUpperCase()];
+  if (!domain || !item?.asin) return '';
+  return `https://www.amazon.${domain}/dp/${item.asin}`;
+}
 
 const STATUS_LABELS = {
   in_stock: 'In stock',
@@ -55,6 +68,7 @@ const FILTER_LABELS = {
   all: 'All',
   actionable: 'Actionable',
   checked: 'Checked',
+  in_stock: 'In Stock',
   low_stock: 'Low Stock',
   out_of_stock: 'Out of Stock',
   unknown_stock_text: 'Unknown Stock Text',
@@ -124,7 +138,7 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
         </Typography>
       )}
       {rows.map((row) => {
-        const endedState = endedItems[row.itemId];
+        const endedInfo = endedItems[row.itemId] || row.endedInfo;
         return (
           <Paper key={`${row.sellerId}-${row.itemId}`} variant="outlined" sx={{ p: 1.25, mb: 1, borderRadius: 2 }}>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -150,8 +164,10 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
                 color={row.orderCount30d > 0 ? 'warning' : 'default'}
                 label={`${formatNumber(row.orderCount30d)} orders / 30d`}
               />
-              {endedState === 'ended' ? (
-                <Chip size="small" color="error" label="Ended" />
+              {endedInfo ? (
+                <Tooltip title={`Ended by ${endedInfo.endedBy || 'unknown'} on ${formatDateTime(endedInfo.endedAt)}`}>
+                  <Chip size="small" color="error" label="Ended" sx={{ fontWeight: 800 }} />
+                </Tooltip>
               ) : (
                 <Button
                   size="small"
@@ -165,6 +181,11 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }
                 </Button>
               )}
             </Stack>
+            {endedInfo && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.main', fontWeight: 700 }}>
+                Ended by {endedInfo.endedBy || 'unknown'} &middot; {formatDateTime(endedInfo.endedAt)}
+              </Typography>
+            )}
             {row.orders?.length > 0 && (
               <Box sx={{ mt: 1, pl: 1, borderLeft: '3px solid #fed7aa' }}>
                 {row.orders.map((order) => (
@@ -208,8 +229,13 @@ export default function SellerSkuStockCheckPage() {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyData, setVerifyData] = useState(null);
+  const [verifyIndex, setVerifyIndex] = useState(-1);
   const [endedItems, setEndedItems] = useState({});
   const [endingItemId, setEndingItemId] = useState(null);
+  const amazonWinRef = useRef(null);
+  // Set when Next/Prev crosses a page boundary: verify the first/last row once
+  // the new page of items loads.
+  const pendingNavRef = useRef(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -343,17 +369,52 @@ export default function SellerSkuStockCheckPage() {
     }
   };
 
-  const handleVerify = async (item) => {
+  // Open (or navigate) the shared Amazon review window, positioned on the
+  // left half of the screen so the verify panel can sit on the right.
+  const openAmazonWindow = (url) => {
+    if (!url) return;
+    // If the review window is already open, navigate it via location instead
+    // of window.open: that swaps the page WITHOUT focusing the Amazon window,
+    // so keyboard focus (and the arrow-key navigation) stays on this app.
+    const existing = amazonWinRef.current;
+    if (existing && !existing.closed) {
+      try {
+        existing.location.href = url;
+        return;
+      } catch {
+        // Window reference went stale — fall through and recreate it.
+      }
+    }
+    // Size the popup to fill the screen from the left edge up to where the
+    // verify panel sits inside this browser window, so the two never overlap.
+    // Browsers only honor width/height when the named window is first created,
+    // so if the user resizes/snaps the Amazon window their arrangement sticks
+    // for the rest of the review session.
+    const browserRightEdge = (window.screenX || 0) + (window.outerWidth || 0);
+    const screenWidth = window.screen.availWidth || 1600;
+    const spaceLeftOfPanel = Math.min(browserRightEdge || screenWidth, screenWidth) - VERIFY_DRAWER_WIDTH - 32;
+    const width = Math.min(1200, Math.max(860, spaceLeftOfPanel));
+    const height = (window.screen.availHeight || 900) - 40;
+    const win = window.open(url, 'amazonVerifyWindow', `left=0,top=0,width=${width},height=${height}`);
+    if (win) {
+      amazonWinRef.current = win;
+    }
+  };
+
+  const handleVerify = async (item, index) => {
     setError('');
     setVerifyOpen(true);
     setVerifyLoading(true);
     setVerifyData(null);
+    setVerifyIndex(index);
     setEndedItems({});
+    // Open Amazon synchronously with a client-built URL so popup blockers
+    // treat it as user-initiated; the verify data fetch follows.
+    openAmazonWindow(getAmazonUrl(item));
     try {
       const { data } = await api.get(`/amazon-stock-checks/items/${item._id}/verify`);
       setVerifyData(data);
-      // Open the country-specific Amazon page alongside the review dialog.
-      if (data.amazonUrl) window.open(data.amazonUrl, '_blank', 'noopener,noreferrer');
+      if (data.amazonUrl && data.amazonUrl !== getAmazonUrl(item)) openAmazonWindow(data.amazonUrl);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load verification data');
       setVerifyOpen(false);
@@ -361,6 +422,69 @@ export default function SellerSkuStockCheckPage() {
       setVerifyLoading(false);
     }
   };
+
+  const closeVerify = () => {
+    setVerifyOpen(false);
+    setVerifyIndex(-1);
+    if (amazonWinRef.current && !amazonWinRef.current.closed) amazonWinRef.current.close();
+    amazonWinRef.current = null;
+  };
+
+  // Move to the previous/next verifiable row (rows with an ASIN) in the
+  // current filtered list, crossing table pages when needed.
+  const handleVerifyNav = (step) => {
+    for (let i = verifyIndex + step; i >= 0 && i < items.length; i += step) {
+      if (items[i]?.asin) {
+        handleVerify(items[i], i);
+        return;
+      }
+    }
+    if (step > 0 && pagination.page < pagination.totalPages) {
+      pendingNavRef.current = 'first';
+      setPagination((prev) => ({ ...prev, page: prev.page + 1 }));
+    } else if (step < 0 && pagination.page > 1) {
+      pendingNavRef.current = 'last';
+      setPagination((prev) => ({ ...prev, page: prev.page - 1 }));
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingNavRef.current || !items.length) return;
+    const direction = pendingNavRef.current;
+    pendingNavRef.current = null;
+    const indexes = items.map((_, i) => i);
+    if (direction === 'last') indexes.reverse();
+    const targetIndex = indexes.find((i) => items[i]?.asin);
+    if (targetIndex != null) handleVerify(items[targetIndex], targetIndex);
+  }, [items]);
+
+  const hasPrevVerifiable = verifyIndex > -1 && (
+    items.slice(0, Math.max(0, verifyIndex)).some((row) => row.asin) || pagination.page > 1
+  );
+  const hasNextVerifiable = verifyIndex > -1 && (
+    items.slice(verifyIndex + 1).some((row) => row.asin) || pagination.page < pagination.totalPages
+  );
+
+  // Left/right arrow keys step through rows while the verify panel is open.
+  useEffect(() => {
+    if (!verifyOpen) return undefined;
+    const onKeyDown = (event) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (event.key === 'Escape') {
+        closeVerify();
+        return;
+      }
+      if (verifyLoading) return;
+      if (event.key === 'ArrowRight' && hasNextVerifiable) handleVerifyNav(1);
+      if (event.key === 'ArrowLeft' && hasPrevVerifiable) handleVerifyNav(-1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [verifyOpen, verifyLoading, verifyIndex, items, pagination.page, pagination.totalPages]);
+
+  const verifyRowNumber = verifyIndex > -1 ? ((pagination.page - 1) * pagination.limit) + verifyIndex + 1 : 0;
+  const verifyProgress = pagination.total > 0 ? Math.min(100, (verifyRowNumber / pagination.total) * 100) : 0;
 
   const handleEndItem = async (sellerItemRow) => {
     setError('');
@@ -370,9 +494,17 @@ export default function SellerSkuStockCheckPage() {
       await api.post('/ebay/end-item', {
         sellerId: sellerItemRow.sellerId,
         itemId: sellerItemRow.itemId,
-        source: 'amazon_stock_check'
+        source: 'amazon_stock_check',
+        sku: verifyData?.sku || '',
+        country: verifyData?.country || ''
       });
-      setEndedItems((prev) => ({ ...prev, [sellerItemRow.itemId]: 'ended' }));
+      setEndedItems((prev) => ({
+        ...prev,
+        [sellerItemRow.itemId]: {
+          endedAt: new Date().toISOString(),
+          endedBy: user?.username || user?.name || user?.email || 'you'
+        }
+      }));
       setSuccess(`Ended item ${sellerItemRow.itemId}`);
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.details || 'Failed to end item');
@@ -385,6 +517,7 @@ export default function SellerSkuStockCheckPage() {
     setActiveFilter(filter);
     setPagination((prev) => ({ ...prev, page: 1 }));
     setExpandedRows(new Set());
+    if (verifyOpen) closeVerify();
   };
 
   const toggleExpanded = (itemId) => {
@@ -553,6 +686,7 @@ export default function SellerSkuStockCheckPage() {
                   setActiveFilter('actionable');
                   setPagination((prev) => ({ ...prev, page: 1, total: 0, totalPages: 1 }));
                   setExpandedRows(new Set());
+                  if (verifyOpen) closeVerify();
                 }}
                 sx={{
                   alignItems: 'flex-start',
@@ -612,7 +746,7 @@ export default function SellerSkuStockCheckPage() {
             <Grid item xs={6} md={1.5}><KpiCard label="Status" value={activeRun.status} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Total SKUs" value={activeRun.totalSkus} active={activeFilter === 'all'} onClick={() => applyFilter('all')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Checked" value={activeRun.checkedCount} active={activeFilter === 'checked'} onClick={() => applyFilter('checked')} /></Grid>
-            <Grid item xs={6} md={1.5}><KpiCard label="In Stock" value={activeRun.inStockCount} tone="good" /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="In Stock" value={activeRun.inStockCount} tone="good" active={activeFilter === 'in_stock'} onClick={() => applyFilter('in_stock')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={activeFilter === 'low_stock'} onClick={() => applyFilter('low_stock')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={activeFilter === 'out_of_stock'} onClick={() => applyFilter('out_of_stock')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="No ASIN" value={activeRun.noAsinCount} active={activeFilter === 'no_asin'} onClick={() => applyFilter('no_asin')} /></Grid>
@@ -647,11 +781,16 @@ export default function SellerSkuStockCheckPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {items.map((item) => {
+                {items.map((item, index) => {
                   const expanded = expandedRows.has(item._id);
                   return (
                     <Fragment key={item._id}>
-                      <TableRow hover onClick={() => toggleExpanded(item._id)} sx={{ cursor: 'pointer' }}>
+                      <TableRow
+                        hover
+                        onClick={() => toggleExpanded(item._id)}
+                        selected={verifyOpen && index === verifyIndex}
+                        sx={{ cursor: 'pointer' }}
+                      >
                         <TableCell sx={{ fontWeight: 900 }}>{item.sku}</TableCell>
                         <TableCell>{item.asin || '-'}</TableCell>
                         <TableCell>{item.country}</TableCell>
@@ -668,7 +807,7 @@ export default function SellerSkuStockCheckPage() {
                             disabled={!item.asin}
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleVerify(item);
+                              handleVerify(item, index);
                             }}
                           >
                             Verify
@@ -724,28 +863,103 @@ export default function SellerSkuStockCheckPage() {
         </>
       )}
 
-      <Dialog open={verifyOpen} onClose={() => setVerifyOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography component="span" sx={{ fontWeight: 900, flex: 1 }}>
-            Verify {verifyData?.sku || ''}
-          </Typography>
-          {verifyData?.amazonUrl && (
-            <Button
-              size="small"
-              variant="outlined"
-              endIcon={<OpenInNewIcon />}
-              href={verifyData.amazonUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open Amazon ({verifyData.country})
-            </Button>
-          )}
-          <IconButton size="small" onClick={() => setVerifyOpen(false)}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
+      <Drawer
+        anchor="right"
+        variant="persistent"
+        open={verifyOpen}
+        // The admin AppBar uses zIndex.drawer + 1, so go one higher or it
+        // covers this panel's header (SKU, prev/next, close button).
+        sx={{ zIndex: (theme) => theme.zIndex.drawer + 2 }}
+        PaperProps={{
+          sx: {
+            width: { xs: '100%', md: VERIFY_DRAWER_WIDTH },
+            boxShadow: '-8px 0 24px rgba(15, 23, 42, 0.18)'
+          }
+        }}
+      >
+        <Box sx={{ borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 1, pt: 1.25 }}>
+            <Tooltip title="Previous (Left arrow key)">
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={verifyLoading || !hasPrevVerifiable}
+                  onClick={() => handleVerifyNav(-1)}
+                  sx={{ border: '1px solid #e5e7eb' }}
+                >
+                  <NavigateBeforeIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Box sx={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 900, fontFamily: "'JetBrains Mono', 'Fira Mono', monospace" }} noWrap>
+                {verifyData?.sku || items[verifyIndex]?.sku || ''}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                {verifyIndex > -1 ? `${formatNumber(verifyRowNumber)} of ${formatNumber(pagination.total)}` : '-'}
+                {' '}&middot; {FILTER_LABELS[activeFilter] || activeFilter}
+              </Typography>
+            </Box>
+            <Tooltip title="Next (Right arrow key)">
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={verifyLoading || !hasNextVerifiable}
+                  onClick={() => handleVerifyNav(1)}
+                  sx={{
+                    bgcolor: BRAND_DARK,
+                    color: '#fff',
+                    '&:hover': { bgcolor: '#000' },
+                    '&.Mui-disabled': { bgcolor: '#f1f5f9', color: '#cbd5e1' }
+                  }}
+                >
+                  <NavigateNextIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <IconButton size="small" onClick={closeVerify}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ px: 1.5, py: 1 }}>
+            {verifyData && !verifyLoading && (
+              <>
+                <Chip size="small" label={verifyData.asin || '-'} sx={{ fontWeight: 800, fontFamily: 'monospace' }} />
+                <Chip
+                  size="small"
+                  color={statusColor(verifyData.status)}
+                  label={STATUS_LABELS[verifyData.status] || verifyData.status}
+                  sx={{ fontWeight: 800 }}
+                />
+                {verifyData.availabilityText && (
+                  <Chip size="small" variant="outlined" label={verifyData.availabilityText} />
+                )}
+              </>
+            )}
+            <Box sx={{ flex: 1 }} />
+            {verifyData?.amazonUrl && (
+              <Button
+                size="small"
+                variant="outlined"
+                endIcon={<OpenInNewIcon />}
+                onClick={() => openAmazonWindow(verifyData.amazonUrl)}
+              >
+                Amazon
+              </Button>
+            )}
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.5, pb: 0.75 }}>
+            <LinearProgress
+              variant="determinate"
+              value={verifyProgress}
+              sx={{ flex: 1, height: 5, borderRadius: 3, bgcolor: '#f1f5f9', '& .MuiLinearProgress-bar': { bgcolor: BRAND_DARK } }}
+            />
+            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              {formatNumber(verifyRowNumber)}/{formatNumber(pagination.total)} ({Math.round(verifyProgress)}%)
+            </Typography>
+          </Stack>
+        </Box>
+        <Box sx={{ p: 2, overflowY: 'auto' }}>
           {verifyLoading && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 3 }}>
               <CircularProgress size={20} />
@@ -754,18 +968,6 @@ export default function SellerSkuStockCheckPage() {
           )}
           {verifyData && !verifyLoading && (
             <Stack spacing={2}>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={`ASIN ${verifyData.asin || '-'}`} sx={{ fontWeight: 800 }} />
-                <Chip size="small" label={verifyData.currency} />
-                <Chip
-                  size="small"
-                  color={statusColor(verifyData.status)}
-                  label={STATUS_LABELS[verifyData.status] || verifyData.status}
-                />
-                {verifyData.availabilityText && (
-                  <Chip size="small" variant="outlined" label={verifyData.availabilityText} />
-                )}
-              </Stack>
               <SellerItemsSection
                 title={`This seller${selectedSeller ? ` — ${getSellerLabel(selectedSeller)}` : ''}`}
                 rows={verifySellerRows.runSeller}
@@ -783,8 +985,8 @@ export default function SellerSkuStockCheckPage() {
               />
             </Stack>
           )}
-        </DialogContent>
-      </Dialog>
+        </Box>
+      </Drawer>
     </Box>
   );
 }
