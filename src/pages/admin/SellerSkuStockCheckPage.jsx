@@ -1,0 +1,790 @@
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Collapse,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
+  IconButton,
+  Paper,
+  Snackbar,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography
+} from '@mui/material';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import CloseIcon from '@mui/icons-material/Close';
+import CancelIcon from '@mui/icons-material/Cancel';
+import api from '../../lib/api';
+import PageHeader from '../../components/PageHeader';
+import { BRAND_DARK } from '../../constants/brandTheme';
+
+const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
+
+const STATUS_LABELS = {
+  in_stock: 'In stock',
+  low_stock: 'Low stock',
+  out_of_stock: 'Out of stock',
+  unknown_stock_text: 'Unknown stock text',
+  no_asin: 'No ASIN',
+  error: 'Error',
+  processing: 'Processing',
+  queued: 'Queued'
+};
+
+const FILTER_LABELS = {
+  all: 'All',
+  actionable: 'Actionable',
+  checked: 'Checked',
+  low_stock: 'Low Stock',
+  out_of_stock: 'Out of Stock',
+  unknown_stock_text: 'Unknown Stock Text',
+  no_asin: 'No ASIN',
+  errors: 'Errors',
+  has_orders: 'Has Orders'
+};
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString();
+}
+
+function statusColor(status) {
+  if (status === 'in_stock') return 'success';
+  if (status === 'low_stock' || status === 'unknown_stock_text') return 'warning';
+  if (status === 'out_of_stock' || status === 'error') return 'error';
+  return 'default';
+}
+
+function getSellerLabel(seller) {
+  return seller?.user?.username || seller?.user?.email || seller?._id || '';
+}
+
+function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
+  const colors = {
+    default: { bg: '#fff', border: '#e5e7eb', color: BRAND_DARK },
+    good: { bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' },
+    warn: { bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' },
+    bad: { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' }
+  };
+  const palette = colors[tone] || colors.default;
+  return (
+    <Paper
+      variant="outlined"
+      onClick={onClick}
+      sx={{
+        p: 1.5,
+        borderRadius: 2,
+        borderColor: active ? BRAND_DARK : palette.border,
+        background: palette.bg,
+        cursor: onClick ? 'pointer' : 'default',
+        boxShadow: active ? `0 0 0 2px ${BRAND_DARK}` : 'none'
+      }}
+    >
+      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800 }}>{label}</Typography>
+      <Typography variant="h6" sx={{ color: palette.color, fontWeight: 900 }}>
+        {typeof value === 'number' ? formatNumber(value) : value}
+      </Typography>
+    </Paper>
+  );
+}
+
+function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem }) {
+  return (
+    <Box>
+      <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
+        {title} ({rows.length})
+      </Typography>
+      {!rows.length && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          No item IDs found.
+        </Typography>
+      )}
+      {rows.map((row) => {
+        const endedState = endedItems[row.itemId];
+        return (
+          <Paper key={`${row.sellerId}-${row.itemId}`} variant="outlined" sx={{ p: 1.25, mb: 1, borderRadius: 2 }}>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={row.sellerName} sx={{ fontWeight: 800 }} />
+              <Button
+                size="small"
+                variant="text"
+                endIcon={<OpenInNewIcon fontSize="inherit" />}
+                href={`https://www.ebay.com/itm/${row.itemId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {row.itemId}
+              </Button>
+              <Typography variant="body2" sx={{ flex: 1, minWidth: 160 }} noWrap title={row.title}>
+                {row.title || '-'}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                {row.price != null ? `${row.price} ${row.currency}` : '-'}
+              </Typography>
+              <Chip
+                size="small"
+                color={row.orderCount30d > 0 ? 'warning' : 'default'}
+                label={`${formatNumber(row.orderCount30d)} orders / 30d`}
+              />
+              {endedState === 'ended' ? (
+                <Chip size="small" color="error" label="Ended" />
+              ) : (
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  startIcon={endingItemId === row.itemId ? <CircularProgress size={14} color="inherit" /> : <CancelIcon />}
+                  disabled={endingItemId === row.itemId}
+                  onClick={() => onEndItem(row)}
+                >
+                  End Listing
+                </Button>
+              )}
+            </Stack>
+            {row.orders?.length > 0 && (
+              <Box sx={{ mt: 1, pl: 1, borderLeft: '3px solid #fed7aa' }}>
+                {row.orders.map((order) => (
+                  <Typography key={`${order.orderId}-${order.date}`} variant="caption" display="block" color="text.secondary">
+                    {formatDateTime(order.date)} | Order {order.orderId}
+                    {order.quantity != null ? ` | Qty ${order.quantity}` : ''}
+                    {order.subtotal != null ? ` | ${order.subtotal} ${row.currency}` : ''}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+          </Paper>
+        );
+      })}
+    </Box>
+  );
+}
+
+export default function SellerSkuStockCheckPage() {
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isSuperAdmin = user?.role === 'superadmin';
+
+  const [canRun, setCanRun] = useState(isSuperAdmin);
+  const [sellers, setSellers] = useState([]);
+  const [selectedSeller, setSelectedSeller] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [threshold, setThreshold] = useState(10);
+  const [starting, setStarting] = useState(false);
+
+  const [runs, setRuns] = useState([]);
+  const [runPagination, setRunPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [activeRun, setActiveRun] = useState(null);
+  const [items, setItems] = useState([]);
+  const [itemCounts, setItemCounts] = useState({});
+  const [pagination, setPagination] = useState({ page: 1, limit: 100, total: 0, totalPages: 1 });
+  const [activeFilter, setActiveFilter] = useState('actionable');
+  const [expandedRows, setExpandedRows] = useState(() => new Set());
+
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyData, setVerifyData] = useState(null);
+  const [endedItems, setEndedItems] = useState({});
+  const [endingItemId, setEndingItemId] = useState(null);
+
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const isRunning = activeRun && ['queued', 'running'].includes(activeRun.status);
+  const isPaused = activeRun?.status === 'paused';
+
+  useEffect(() => {
+    api.get('/sellers/all')
+      .then(({ data }) => setSellers(Array.isArray(data) ? data : []))
+      .catch((err) => setError(err.response?.data?.error || 'Failed to load sellers'));
+  }, []);
+
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    api.get(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}/check`)
+      .then(({ data }) => setCanRun(Boolean(data?.allowed)))
+      .catch(() => setCanRun(false));
+  }, []);
+
+  const loadSummary = async (sellerId) => {
+    setLoadingSummary(true);
+    setSummary(null);
+    try {
+      const { data } = await api.get('/amazon-stock-checks/seller-summary', { params: { sellerId } });
+      setSummary(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load SKU summary for seller');
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  const fetchRuns = async (sellerId) => {
+    if (!sellerId) return;
+    try {
+      const { data } = await api.get('/amazon-stock-checks/runs', {
+        params: { sellerId, page: runPagination.page, limit: runPagination.limit }
+      });
+      setRuns(data.runs || []);
+      setRunPagination((prev) => ({ ...prev, ...(data.pagination || {}) }));
+      setActiveRun((prev) => {
+        if (prev && (data.runs || []).some((run) => run._id === prev._id)) return prev;
+        return data.runs?.[0] || null;
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load runs');
+    }
+  };
+
+  const fetchRun = async (runId) => {
+    if (!runId) return;
+    try {
+      const [{ data: runData }, { data: itemsData }] = await Promise.all([
+        api.get(`/amazon-stock-checks/runs/${runId}`),
+        api.get(`/amazon-stock-checks/runs/${runId}/items`, {
+          params: { filter: activeFilter, page: pagination.page, limit: pagination.limit }
+        })
+      ]);
+      setActiveRun(runData.run);
+      setItemCounts(runData.itemCounts || {});
+      setItems(itemsData.items || []);
+      setPagination((prev) => ({ ...prev, ...(itemsData.pagination || {}) }));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load run details');
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedSeller?._id) {
+      setSummary(null);
+      setRuns([]);
+      setActiveRun(null);
+      setItems([]);
+      setItemCounts({});
+      return;
+    }
+    loadSummary(selectedSeller._id);
+    fetchRuns(selectedSeller._id);
+  }, [selectedSeller?._id, runPagination.page, runPagination.limit]);
+
+  useEffect(() => {
+    if (!activeRun?._id) return undefined;
+    fetchRun(activeRun._id);
+    if (!['queued', 'running'].includes(activeRun.status)) return undefined;
+    const timer = setInterval(() => {
+      fetchRun(activeRun._id);
+      if (selectedSeller?._id) fetchRuns(selectedSeller._id);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [activeRun?._id, activeRun?.status, activeFilter, pagination.page, pagination.limit]);
+
+  const handleStart = async (currency) => {
+    if (!selectedSeller?._id) return;
+    setError('');
+    setSuccess('');
+    setStarting(true);
+    try {
+      const { data } = await api.post('/amazon-stock-checks/runs', {
+        sellerId: selectedSeller._id,
+        currencies: [currency],
+        threshold,
+        autoZeroQuantity: false
+      });
+      setActiveRun(data.run);
+      setItems([]);
+      setItemCounts({});
+      setActiveFilter('actionable');
+      setPagination((prev) => ({ ...prev, page: 1, total: 0, totalPages: 1 }));
+      setExpandedRows(new Set());
+      setSuccess(`Stock check started for ${getSellerLabel(selectedSeller)} (${currency}).`);
+      await fetchRuns(selectedSeller._id);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start stock check');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleRunAction = async (action) => {
+    if (!activeRun?._id) return;
+    setError('');
+    setSuccess('');
+    try {
+      const { data } = await api.post(`/amazon-stock-checks/runs/${activeRun._id}/${action}`);
+      setSuccess(data.message || `Run ${action} requested.`);
+      await fetchRuns(selectedSeller?._id);
+      await fetchRun(activeRun._id);
+    } catch (err) {
+      setError(err.response?.data?.error || `Failed to ${action} run`);
+    }
+  };
+
+  const handleVerify = async (item) => {
+    setError('');
+    setVerifyOpen(true);
+    setVerifyLoading(true);
+    setVerifyData(null);
+    setEndedItems({});
+    try {
+      const { data } = await api.get(`/amazon-stock-checks/items/${item._id}/verify`);
+      setVerifyData(data);
+      // Open the country-specific Amazon page alongside the review dialog.
+      if (data.amazonUrl) window.open(data.amazonUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load verification data');
+      setVerifyOpen(false);
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const handleEndItem = async (sellerItemRow) => {
+    setError('');
+    setSuccess('');
+    setEndingItemId(sellerItemRow.itemId);
+    try {
+      await api.post('/ebay/end-item', {
+        sellerId: sellerItemRow.sellerId,
+        itemId: sellerItemRow.itemId,
+        source: 'amazon_stock_check'
+      });
+      setEndedItems((prev) => ({ ...prev, [sellerItemRow.itemId]: 'ended' }));
+      setSuccess(`Ended item ${sellerItemRow.itemId}`);
+    } catch (err) {
+      setError(err.response?.data?.error || err.response?.data?.details || 'Failed to end item');
+    } finally {
+      setEndingItemId(null);
+    }
+  };
+
+  const applyFilter = (filter) => {
+    setActiveFilter(filter);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    setExpandedRows(new Set());
+  };
+
+  const toggleExpanded = (itemId) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const verifySellerRows = useMemo(() => {
+    const rows = verifyData?.sellerItems || [];
+    return {
+      runSeller: rows.filter((row) => row.isRunSeller),
+      others: rows.filter((row) => !row.isRunSeller)
+    };
+  }, [verifyData]);
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <PageHeader
+        title="Seller SKU Stock Check"
+        subtitle="Pick a seller, review their SKU index by currency, run an Amazon stock check on those SKUs, then verify results and end listings manually."
+      />
+
+      <Snackbar
+        open={Boolean(success)}
+        autoHideDuration={3000}
+        onClose={() => setSuccess('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setSuccess('')} sx={{ minWidth: 320 }}>
+          {success}
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={Boolean(error)}
+        autoHideDuration={4000}
+        onClose={() => setError('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setError('')} sx={{ minWidth: 320 }}>
+          {error}
+        </Alert>
+      </Snackbar>
+
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={5}>
+            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Seller</Typography>
+            <Autocomplete
+              options={sellers}
+              value={selectedSeller}
+              onChange={(_, value) => {
+                setSelectedSeller(value);
+                setRunPagination((prev) => ({ ...prev, page: 1 }));
+              }}
+              getOptionLabel={getSellerLabel}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              renderInput={(params) => <TextField {...params} size="small" placeholder="Select a seller" />}
+            />
+          </Grid>
+          <Grid item xs={6} md={2}>
+            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Low Stock Threshold</Typography>
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              value={threshold}
+              onChange={(event) => setThreshold(event.target.value)}
+              inputProps={{ min: 1 }}
+            />
+          </Grid>
+          <Grid item xs={6} md={5}>
+            {loadingSummary && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="text.secondary">Loading SKU index summary...</Typography>
+              </Stack>
+            )}
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {summary && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 900, mb: 1 }}>
+            SKU Index by Currency — {getSellerLabel(selectedSeller)}
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead sx={{ background: BRAND_DARK }}>
+                <TableRow>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Country</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Currency</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>SKU Count</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>Listings</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>Duplicate SKUs</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>Extra Count</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>Action</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(summary.currencies || []).map((row) => (
+                  <TableRow key={row.currency} hover>
+                    <TableCell sx={{ fontWeight: 800 }}>{row.country}</TableCell>
+                    <TableCell>{row.currency}</TableCell>
+                    <TableCell align="right">{formatNumber(row.uniqueSkuCount)}</TableCell>
+                    <TableCell align="right">{formatNumber(row.listingCount)}</TableCell>
+                    <TableCell align="right">
+                      <Chip size="small" color={row.duplicateSkuCount > 0 ? 'warning' : 'success'} label={formatNumber(row.duplicateSkuCount)} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Chip size="small" color={row.extraCount > 0 ? 'error' : 'success'} label={formatNumber(row.extraCount)} />
+                    </TableCell>
+                    <TableCell align="right">
+                      {row.supported ? (
+                        canRun ? (
+                          <Tooltip title={`Check Amazon availability for all ${formatNumber(row.uniqueSkuCount)} SKUs (${row.credits} credit${row.credits > 1 ? 's' : ''}/SKU)`}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                startIcon={starting ? <CircularProgress size={14} color="inherit" /> : <PlayArrowIcon />}
+                                disabled={starting || isRunning}
+                                onClick={() => handleStart(row.currency)}
+                                sx={{ backgroundColor: BRAND_DARK }}
+                              >
+                                Check Stock
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">No run access</Typography>
+                        )
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">Unsupported</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!summary.currencies?.length && (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                      No SKU index rows found for this seller. Run a SKU Index Sync first.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
+      {selectedSeller && runs.length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 900, mb: 1 }}>Runs for {getSellerLabel(selectedSeller)}</Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
+            {runs.map((run) => (
+              <Button
+                key={run._id}
+                variant={activeRun?._id === run._id ? 'contained' : 'outlined'}
+                onClick={() => {
+                  setActiveRun(run);
+                  setActiveFilter('actionable');
+                  setPagination((prev) => ({ ...prev, page: 1, total: 0, totalPages: 1 }));
+                  setExpandedRows(new Set());
+                }}
+                sx={{
+                  alignItems: 'flex-start',
+                  flex: '0 0 250px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  textTransform: 'none',
+                  backgroundColor: activeRun?._id === run._id ? BRAND_DARK : undefined
+                }}
+              >
+                <Stack spacing={0.25} sx={{ width: '100%' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>{(run.currencies || []).join(', ')}</Typography>
+                  <Typography variant="caption">{formatDateTime(run.createdAt)}</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 900 }}>
+                    {run.status} | {formatNumber(run.checkedCount)}/{formatNumber(run.totalSkus)}
+                  </Typography>
+                </Stack>
+              </Button>
+            ))}
+          </Stack>
+          <TablePagination
+            component="div"
+            count={runPagination.total || 0}
+            page={Math.max(0, (runPagination.page || 1) - 1)}
+            onPageChange={(_event, nextPage) => setRunPagination((prev) => ({ ...prev, page: nextPage + 1 }))}
+            rowsPerPage={runPagination.limit || 10}
+            onRowsPerPageChange={(event) => {
+              setRunPagination((prev) => ({ ...prev, page: 1, limit: Number.parseInt(event.target.value, 10) }));
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        </Paper>
+      )}
+
+      {activeRun && (
+        <>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            {canRun && isRunning && (
+              <Button variant="outlined" color="warning" size="small" startIcon={<PauseIcon />} onClick={() => handleRunAction('pause')}>
+                Pause
+              </Button>
+            )}
+            {canRun && isPaused && (
+              <Button variant="outlined" size="small" startIcon={<PlayArrowIcon />} onClick={() => handleRunAction('resume')}>
+                Resume
+              </Button>
+            )}
+            {canRun && ['queued', 'running', 'paused'].includes(activeRun.status) && (
+              <Button variant="outlined" color="error" size="small" startIcon={<StopCircleIcon />} onClick={() => handleRunAction('cancel')}>
+                Cancel
+              </Button>
+            )}
+            {isRunning && <CircularProgress size={16} />}
+          </Stack>
+
+          <Grid container spacing={1.5} sx={{ mb: 2 }}>
+            <Grid item xs={6} md={1.5}><KpiCard label="Status" value={activeRun.status} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="Total SKUs" value={activeRun.totalSkus} active={activeFilter === 'all'} onClick={() => applyFilter('all')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="Checked" value={activeRun.checkedCount} active={activeFilter === 'checked'} onClick={() => applyFilter('checked')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="In Stock" value={activeRun.inStockCount} tone="good" /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={activeFilter === 'low_stock'} onClick={() => applyFilter('low_stock')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={activeFilter === 'out_of_stock'} onClick={() => applyFilter('out_of_stock')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="No ASIN" value={activeRun.noAsinCount} active={activeFilter === 'no_asin'} onClick={() => applyFilter('no_asin')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="Errors" value={activeRun.errorCount} tone="bad" active={activeFilter === 'errors'} onClick={() => applyFilter('errors')} /></Grid>
+          </Grid>
+
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
+            <Typography variant="caption" sx={{ fontWeight: 900, color: 'text.secondary' }}>Filter</Typography>
+            {Object.entries(FILTER_LABELS).map(([filter, label]) => (
+              <Chip
+                key={filter}
+                size="small"
+                label={`${label}${itemCounts[filter] != null ? ` (${formatNumber(itemCounts[filter])})` : ''}`}
+                color={activeFilter === filter ? 'primary' : 'default'}
+                onClick={() => applyFilter(filter)}
+                sx={{ fontWeight: 800 }}
+              />
+            ))}
+          </Stack>
+
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+            <Table size="small">
+              <TableHead sx={{ background: BRAND_DARK }}>
+                <TableRow>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>SKU</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>ASIN</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Country</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Amazon Status</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Stock</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 900 }}>Item IDs</TableCell>
+                  <TableCell align="right" sx={{ color: '#fff', fontWeight: 900 }}>Action</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {items.map((item) => {
+                  const expanded = expandedRows.has(item._id);
+                  return (
+                    <Fragment key={item._id}>
+                      <TableRow hover onClick={() => toggleExpanded(item._id)} sx={{ cursor: 'pointer' }}>
+                        <TableCell sx={{ fontWeight: 900 }}>{item.sku}</TableCell>
+                        <TableCell>{item.asin || '-'}</TableCell>
+                        <TableCell>{item.country}</TableCell>
+                        <TableCell>
+                          <Chip size="small" color={statusColor(item.status)} label={STATUS_LABELS[item.status] || item.status} />
+                        </TableCell>
+                        <TableCell>{item.stockQuantity ?? (item.availabilityText || '-')}</TableCell>
+                        <TableCell>{formatNumber(item.sellerItems?.length || 0)}</TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<FactCheckIcon />}
+                            disabled={!item.asin}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleVerify(item);
+                            }}
+                          >
+                            Verify
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={7} sx={{ p: 0, border: 0 }}>
+                          <Collapse in={expanded} timeout="auto" unmountOnExit>
+                            <Box sx={{ p: 2, background: '#f8fafc' }}>
+                              <Typography variant="caption" sx={{ fontWeight: 900 }}>Item IDs on this SKU</Typography>
+                              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+                                {(item.sellerItems || []).map((sellerItem) => (
+                                  <Chip
+                                    key={`${sellerItem.sellerId}-${sellerItem.itemId}`}
+                                    size="small"
+                                    label={`${sellerItem.sellerName}: ${sellerItem.itemId}`}
+                                  />
+                                ))}
+                              </Stack>
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  );
+                })}
+                {!items.length && (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                      {isRunning ? 'Check in progress — results will appear here.' : 'No rows match the selected filter yet.'}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <TablePagination
+              component="div"
+              count={pagination.total || 0}
+              page={Math.max(0, (pagination.page || 1) - 1)}
+              onPageChange={(_event, nextPage) => {
+                setPagination((prev) => ({ ...prev, page: nextPage + 1 }));
+                setExpandedRows(new Set());
+              }}
+              rowsPerPage={pagination.limit || 100}
+              onRowsPerPageChange={(event) => {
+                setPagination((prev) => ({ ...prev, page: 1, limit: Number.parseInt(event.target.value, 10) }));
+                setExpandedRows(new Set());
+              }}
+              rowsPerPageOptions={[25, 50, 100, 250, 500]}
+            />
+          </TableContainer>
+        </>
+      )}
+
+      <Dialog open={verifyOpen} onClose={() => setVerifyOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography component="span" sx={{ fontWeight: 900, flex: 1 }}>
+            Verify {verifyData?.sku || ''}
+          </Typography>
+          {verifyData?.amazonUrl && (
+            <Button
+              size="small"
+              variant="outlined"
+              endIcon={<OpenInNewIcon />}
+              href={verifyData.amazonUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Amazon ({verifyData.country})
+            </Button>
+          )}
+          <IconButton size="small" onClick={() => setVerifyOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {verifyLoading && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 3 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" color="text.secondary">Loading item IDs and orders...</Typography>
+            </Stack>
+          )}
+          {verifyData && !verifyLoading && (
+            <Stack spacing={2}>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={`ASIN ${verifyData.asin || '-'}`} sx={{ fontWeight: 800 }} />
+                <Chip size="small" label={verifyData.currency} />
+                <Chip
+                  size="small"
+                  color={statusColor(verifyData.status)}
+                  label={STATUS_LABELS[verifyData.status] || verifyData.status}
+                />
+                {verifyData.availabilityText && (
+                  <Chip size="small" variant="outlined" label={verifyData.availabilityText} />
+                )}
+              </Stack>
+              <SellerItemsSection
+                title={`This seller${selectedSeller ? ` — ${getSellerLabel(selectedSeller)}` : ''}`}
+                rows={verifySellerRows.runSeller}
+                endedItems={endedItems}
+                endingItemId={endingItemId}
+                onEndItem={handleEndItem}
+              />
+              <Divider />
+              <SellerItemsSection
+                title="Other sellers with this SKU in the same currency"
+                rows={verifySellerRows.others}
+                endedItems={endedItems}
+                endingItemId={endingItemId}
+                onEndItem={handleEndItem}
+              />
+            </Stack>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Box>
+  );
+}
