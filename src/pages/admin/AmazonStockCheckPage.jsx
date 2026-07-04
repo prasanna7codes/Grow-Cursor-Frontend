@@ -35,6 +35,7 @@ import {
   Typography
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import EditIcon from '@mui/icons-material/Edit';
@@ -58,6 +59,7 @@ const STATUS_LABELS = {
   in_stock: 'In stock',
   low_stock: 'Low stock',
   out_of_stock: 'Out of stock',
+  unknown_stock_text: 'Unknown stock text',
   no_asin: 'No ASIN',
   error: 'Error',
   processing: 'Processing',
@@ -70,6 +72,7 @@ const FILTER_LABELS = {
   checked: 'Checked',
   low_stock: 'Low Stock',
   out_of_stock: 'Out of Stock',
+  unknown_stock_text: 'Unknown Stock Text',
   qty_zero_success: 'Qty Zero Success',
   no_asin: 'No ASIN',
   restocked: 'Became Available',
@@ -113,7 +116,7 @@ function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
 
 function statusColor(status) {
   if (status === 'in_stock') return 'success';
-  if (status === 'low_stock') return 'warning';
+  if (status === 'low_stock' || status === 'unknown_stock_text') return 'warning';
   if (status === 'out_of_stock' || status === 'error') return 'error';
   return 'default';
 }
@@ -170,6 +173,7 @@ export default function AmazonStockCheckPage() {
   const [reviseForm, setReviseForm] = useState({ title: '', price: '' });
 
   const isRunning = activeRun && ['queued', 'running'].includes(activeRun.status);
+  const isPaused = activeRun?.status === 'paused';
 
   const selectedCurrencyList = useMemo(() => (
     mode === 'custom' ? currencies : ['USD', 'AUD', 'CAD', 'GBP']
@@ -338,6 +342,20 @@ export default function AmazonStockCheckPage() {
       await fetchRun(activeRun._id);
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to set quantity to one');
+    }
+  };
+
+  const handleRunAction = async (action) => {
+    if (!activeRun?._id) return;
+    setError('');
+    setSuccess('');
+    try {
+      const { data } = await api.post(`/amazon-stock-checks/runs/${activeRun._id}/${action}`);
+      setSuccess(data.message || `Run ${action} requested.`);
+      await fetchRuns();
+      await fetchRun(activeRun._id);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || `Failed to ${action} run`);
     }
   };
 
@@ -527,11 +545,40 @@ export default function AmazonStockCheckPage() {
                     variant="contained"
                     startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
                     onClick={handleStart}
-                    disabled={starting || isRunning}
+                    disabled={starting || isRunning || isPaused}
                     sx={{ backgroundColor: BRAND_DARK }}
                   >
                     Start
                   </Button>
+                  {isRunning && (
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      startIcon={<PauseIcon />}
+                      onClick={() => handleRunAction('pause')}
+                    >
+                      Pause
+                    </Button>
+                  )}
+                  {isPaused && (
+                    <Button
+                      variant="outlined"
+                      startIcon={<PlayArrowIcon />}
+                      onClick={() => handleRunAction('resume')}
+                    >
+                      Resume
+                    </Button>
+                  )}
+                  {activeRun && ['queued', 'running', 'paused'].includes(activeRun.status) && (
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      startIcon={<StopCircleIcon />}
+                      onClick={() => handleRunAction('cancel')}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                 </>
               )}
               {isSuperAdmin && (
@@ -560,6 +607,7 @@ export default function AmazonStockCheckPage() {
           <Grid item xs={6} md={2}><KpiCard label="Checked" value={activeRun.checkedCount} active={isFilterActive('checked')} onClick={() => applyFilter('checked')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={isFilterActive('low_stock')} onClick={() => applyFilter('low_stock')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={isFilterActive('out_of_stock')} onClick={() => applyFilter('out_of_stock')} /></Grid>
+          <Grid item xs={6} md={2}><KpiCard label="Unknown Stock Text" value={activeRun.unknownStockTextCount || itemCounts.unknown_stock_text || 0} tone="warn" active={isFilterActive('unknown_stock_text')} onClick={() => applyFilter('unknown_stock_text')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Qty Zero Success" value={activeRun.quantityZeroSuccessCount} tone="good" active={isFilterActive('qty_zero_success')} onClick={() => applyFilter('qty_zero_success')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Qty Zero Failed" value={itemCounts.qty_zero_failed || 0} tone="bad" active={isFilterActive('qty_zero_failed')} onClick={() => applyFilter('qty_zero_failed')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Credits Used" value={activeRun.creditsUsed} /></Grid>
@@ -706,6 +754,17 @@ export default function AmazonStockCheckPage() {
                         <TableCell>
                           <Chip size="small" color={statusColor(item.status)} label={STATUS_LABELS[item.status] || item.status} />
                           {item.becameAvailable && <Chip size="small" color="success" label="Became available" sx={{ ml: 1 }} />}
+                          {item.status === 'error' && (
+                            <Stack spacing={0.25} sx={{ mt: 0.75 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 900, color: 'error.main' }}>
+                                {item.errorType || 'stock_check_failed'}{item.errorSource ? ` | ${item.errorSource}` : ''}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" title={item.error || ''}>
+                                {item.error || 'No error detail saved'}
+                              </Typography>
+                              {item.retryable && <Chip size="small" label="retryable" sx={{ alignSelf: 'flex-start' }} />}
+                            </Stack>
+                          )}
                         </TableCell>
                         <TableCell>{item.stockQuantity ?? (item.availabilityText || '-')}</TableCell>
                         <TableCell>
