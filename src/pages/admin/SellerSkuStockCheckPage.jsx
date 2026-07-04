@@ -8,6 +8,10 @@ import {
   Chip,
   CircularProgress,
   Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Drawer,
   Grid,
@@ -36,6 +40,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import CancelIcon from '@mui/icons-material/Cancel';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import LockPersonIcon from '@mui/icons-material/LockPerson';
+import ImageIcon from '@mui/icons-material/Image';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import { BRAND_DARK } from '../../constants/brandTheme';
@@ -162,7 +168,40 @@ function OrderSparkline({ monthly = [] }) {
   );
 }
 
-function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem, selectedIds, onToggleSelect }) {
+function ListingThumb({ url, title }) {
+  if (!url) {
+    return (
+      <Box
+        sx={{
+          width: 48,
+          height: 48,
+          flexShrink: 0,
+          borderRadius: 1,
+          bgcolor: '#f1f5f9',
+          border: '1px solid #e5e7eb',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <ImageIcon sx={{ fontSize: 18, color: '#cbd5e1' }} />
+      </Box>
+    );
+  }
+  return (
+    <Box component="a" href={url} target="_blank" rel="noopener noreferrer" sx={{ flexShrink: 0, lineHeight: 0 }}>
+      <Box
+        component="img"
+        src={url}
+        alt={title || 'listing image'}
+        loading="lazy"
+        sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, border: '1px solid #e5e7eb' }}
+      />
+    </Box>
+  );
+}
+
+function SellerItemsSection({ title, rows, currentSku, images, endedItems, endingItemId, onEndItem, selectedIds, onToggleSelect }) {
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
@@ -186,6 +225,7 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem, 
                 checked={selectedIds.has(row.itemId)}
                 onChange={() => onToggleSelect(row)}
               />
+              <ListingThumb url={images?.[row.itemId]} title={row.title} />
               <Chip size="small" label={row.sellerName} sx={{ fontWeight: 800 }} />
               <Button
                 size="small"
@@ -198,6 +238,17 @@ function SellerItemsSection({ title, rows, endedItems, endingItemId, onEndItem, 
               >
                 {row.itemId}
               </Button>
+              {row.sku && currentSku && row.sku !== currentSku && (
+                <Tooltip title={`Variant listing — exact SKU is ${row.sku}`}>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color="info"
+                    label={row.sku}
+                    sx={{ fontWeight: 800, fontFamily: 'monospace' }}
+                  />
+                </Tooltip>
+              )}
               <Box sx={{ flex: 1 }} />
               <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
                 {row.price != null ? `${row.price} ${row.currency}` : '-'}
@@ -266,6 +317,11 @@ export default function SellerSkuStockCheckPage() {
   const isSuperAdmin = user?.role === 'superadmin';
 
   const [canRun, setCanRun] = useState(isSuperAdmin);
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [allowedUsers, setAllowedUsers] = useState([]);
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [loadingAccess, setLoadingAccess] = useState(false);
   const [sellers, setSellers] = useState([]);
   const [selectedSeller, setSelectedSeller] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -290,6 +346,9 @@ export default function SellerSkuStockCheckPage() {
   const [endingItemId, setEndingItemId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkEnding, setBulkEnding] = useState(false);
+  const [verifyImages, setVerifyImages] = useState({});
+  // Guards against a slow image response overwriting a newer row's images.
+  const imageRequestRef = useRef(null);
   const amazonWinRef = useRef(null);
   // Set when Next/Prev crosses a page boundary: verify the first/last row once
   // the new page of items loads.
@@ -313,6 +372,39 @@ export default function SellerSkuStockCheckPage() {
       .then(({ data }) => setCanRun(Boolean(data?.allowed)))
       .catch(() => setCanRun(false));
   }, []);
+
+  const openAccessDialog = async () => {
+    setAccessDialogOpen(true);
+    setLoadingAccess(true);
+    try {
+      const [{ data: usersData }, { data: permissionData }] = await Promise.all([
+        api.get('/users'),
+        api.get(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}`)
+      ]);
+      setAllUsers(usersData || []);
+      setAllowedUsers(permissionData?.allowedUserIds || []);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load access settings');
+    } finally {
+      setLoadingAccess(false);
+    }
+  };
+
+  const saveAccess = async () => {
+    setSavingAccess(true);
+    try {
+      const { data } = await api.put(`/feature-permissions/${AMAZON_STOCK_CHECK_RUN_FEATURE_ID}`, {
+        allowedUserIds: allowedUsers.map((u) => u._id)
+      });
+      setAllowedUsers(data?.allowedUserIds || []);
+      setSuccess('Access list updated.');
+      setAccessDialogOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save access settings');
+    } finally {
+      setSavingAccess(false);
+    }
+  };
 
   const loadSummary = async (sellerId) => {
     setLoadingSummary(true);
@@ -467,6 +559,7 @@ export default function SellerSkuStockCheckPage() {
     setVerifyIndex(index);
     setEndedItems({});
     setSelectedIds(new Set());
+    setVerifyImages({});
     // Open Amazon synchronously with a client-built URL so popup blockers
     // treat it as user-initiated; the verify data fetch follows.
     openAmazonWindow(getAmazonUrl(item));
@@ -474,6 +567,17 @@ export default function SellerSkuStockCheckPage() {
       const { data } = await api.get(`/amazon-stock-checks/items/${item._id}/verify`);
       setVerifyData(data);
       if (data.amazonUrl && data.amazonUrl !== getAmazonUrl(item)) openAmazonWindow(data.amazonUrl);
+      // Load listing images live from eBay in the background; the panel is
+      // already usable while they arrive.
+      const imageItemIds = [...new Set((data.sellerItems || []).map((row) => row.itemId).filter(Boolean))];
+      if (imageItemIds.length && selectedSeller?._id) {
+        imageRequestRef.current = item._id;
+        api.post('/amazon-stock-checks/live-images', { sellerId: selectedSeller._id, itemIds: imageItemIds })
+          .then(({ data: imageData }) => {
+            if (imageRequestRef.current === item._id) setVerifyImages(imageData.images || {});
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load verification data');
       setVerifyOpen(false);
@@ -710,12 +814,22 @@ export default function SellerSkuStockCheckPage() {
             />
           </Grid>
           <Grid item xs={6} md={5}>
-            {loadingSummary && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
-                <CircularProgress size={18} />
-                <Typography variant="body2" color="text.secondary">Loading SKU index summary...</Typography>
-              </Stack>
-            )}
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
+              {loadingSummary && (
+                <>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" color="text.secondary">Loading SKU index summary...</Typography>
+                </>
+              )}
+              <Box sx={{ flex: 1 }} />
+              {isSuperAdmin && (
+                <Tooltip title="Manage who can run stock checks (shared with the Amazon Stock Check page)">
+                  <IconButton size="small" onClick={openAccessDialog}>
+                    <LockPersonIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Stack>
           </Grid>
         </Grid>
       </Paper>
@@ -980,6 +1094,46 @@ export default function SellerSkuStockCheckPage() {
         </>
       )}
 
+      <Dialog open={accessDialogOpen} onClose={() => setAccessDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Manage Stock Check Access</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Superadmins always have access. Select which other users can run stock checks.
+              This list is shared with the Amazon Stock Check page.
+            </Typography>
+            {loadingAccess ? (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="text.secondary">Loading...</Typography>
+              </Stack>
+            ) : (
+              <Autocomplete
+                multiple
+                options={allUsers}
+                value={allowedUsers}
+                onChange={(_, value) => setAllowedUsers(value)}
+                getOptionLabel={(option) => option?.username ? `${option.username} (${option.role})` : ''}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                renderInput={(params) => <TextField {...params} label="Allowed users" placeholder="Select users" />}
+              />
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAccessDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={saveAccess}
+            disabled={savingAccess || loadingAccess}
+            startIcon={savingAccess ? <CircularProgress size={16} color="inherit" /> : undefined}
+            sx={{ backgroundColor: BRAND_DARK }}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Drawer
         anchor="right"
         variant="persistent"
@@ -1107,6 +1261,8 @@ export default function SellerSkuStockCheckPage() {
               <SellerItemsSection
                 title={`This seller${selectedSeller ? ` — ${getSellerLabel(selectedSeller)}` : ''}`}
                 rows={verifySellerRows.runSeller}
+                currentSku={verifyData.sku}
+                images={verifyImages}
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
@@ -1115,8 +1271,10 @@ export default function SellerSkuStockCheckPage() {
               />
               <Divider />
               <SellerItemsSection
-                title="Other sellers with this SKU in the same currency"
+                title="Other sellers with this base SKU in the same currency"
                 rows={verifySellerRows.others}
+                currentSku={verifyData.sku}
+                images={verifyImages}
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
