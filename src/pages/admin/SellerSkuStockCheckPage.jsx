@@ -42,6 +42,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import LockPersonIcon from '@mui/icons-material/LockPerson';
 import ImageIcon from '@mui/icons-material/Image';
+import EditIcon from '@mui/icons-material/Edit';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import { BRAND_DARK } from '../../constants/brandTheme';
@@ -207,7 +208,19 @@ function ListingThumb({ url, title }) {
   );
 }
 
-function SellerItemsSection({ title, rows, currentSku, images, endedItems, endingItemId, onEndItem, selectedIds, onToggleSelect }) {
+function SellerItemsSection({
+  title,
+  rows,
+  currentSku,
+  images,
+  endedItems,
+  endingItemId,
+  onEndItem,
+  revisedItems,
+  onReviseItem,
+  selectedIds,
+  onToggleSelect
+}) {
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
@@ -220,6 +233,7 @@ function SellerItemsSection({ title, rows, currentSku, images, endedItems, endin
       )}
       {rows.map((row) => {
         const endedInfo = endedItems[row.itemId] || row.endedInfo;
+        const revisedInfo = revisedItems[row.itemId] || row.revisedInfo;
         const busy = endingItemId === row.itemId;
         return (
           <Paper key={`${row.sellerId}-${row.itemId}`} variant="outlined" sx={{ p: 1.25, mb: 1, borderRadius: 2 }}>
@@ -259,6 +273,17 @@ function SellerItemsSection({ title, rows, currentSku, images, endedItems, endin
               <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
                 {row.price != null ? `${row.price} ${row.currency}` : '-'}
               </Typography>
+              {!endedInfo && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  disabled={busy}
+                  onClick={() => onReviseItem(row)}
+                >
+                  Revise
+                </Button>
+              )}
               {endedInfo ? (
                 <Tooltip title={`Ended by ${endedInfo.endedBy || 'unknown'} on ${formatDateTime(endedInfo.endedAt)}`}>
                   <Chip size="small" color="error" label="Ended" sx={{ fontWeight: 800 }} />
@@ -297,6 +322,14 @@ function SellerItemsSection({ title, rows, currentSku, images, endedItems, endin
             {endedInfo && (
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.main', fontWeight: 700 }}>
                 Ended by {endedInfo.endedBy || 'unknown'} &middot; {formatDateTime(endedInfo.endedAt)}
+              </Typography>
+            )}
+            {revisedInfo && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#1d4ed8', fontWeight: 700 }}>
+                Revised by {revisedInfo.revisedBy || 'unknown'} &middot; {formatDateTime(revisedInfo.revisedAt)}
+                {revisedInfo.previousPrice != null && revisedInfo.newPrice != null
+                  ? ` · ${revisedInfo.previousPrice} → ${revisedInfo.newPrice} ${row.currency}`
+                  : ''}
               </Typography>
             )}
             {row.orders?.length > 0 && (
@@ -350,6 +383,10 @@ export default function SellerSkuStockCheckPage() {
   const [verifyIndex, setVerifyIndex] = useState(-1);
   const [endedItems, setEndedItems] = useState({});
   const [endingItemId, setEndingItemId] = useState(null);
+  const [revisedItems, setRevisedItems] = useState({});
+  const [reviseTarget, setReviseTarget] = useState(null);
+  const [reviseForm, setReviseForm] = useState({ title: '', price: '' });
+  const [revising, setRevising] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkEnding, setBulkEnding] = useState(false);
   const [verifyImages, setVerifyImages] = useState({});
@@ -564,6 +601,7 @@ export default function SellerSkuStockCheckPage() {
     setVerifyData(null);
     setVerifyIndex(index);
     setEndedItems({});
+    setRevisedItems({});
     setSelectedIds(new Set());
     setVerifyImages({});
     // Open Amazon synchronously with a client-built URL so popup blockers
@@ -679,6 +717,47 @@ export default function SellerSkuStockCheckPage() {
       setError(err.response?.data?.error || err.response?.data?.details || 'Failed to end item');
     } finally {
       setEndingItemId(null);
+    }
+  };
+
+  const openReviseDialog = (sellerItemRow) => {
+    setReviseTarget(sellerItemRow);
+    setReviseForm({ title: sellerItemRow.title || '', price: sellerItemRow.price ?? '' });
+  };
+
+  const handleReviseListing = async () => {
+    if (!reviseTarget) return;
+    setError('');
+    setSuccess('');
+    setRevising(true);
+    try {
+      const { data } = await api.post('/amazon-stock-checks/revise-listing', {
+        sellerId: reviseTarget.sellerId,
+        itemId: reviseTarget.itemId,
+        title: reviseForm.title,
+        price: reviseForm.price,
+        previousTitle: reviseTarget.title || '',
+        previousPrice: reviseTarget.price ?? null,
+        sku: verifyData?.sku || '',
+        asin: verifyData?.asin || ''
+      });
+      setRevisedItems((prev) => ({
+        ...prev,
+        [reviseTarget.itemId]: {
+          revisedAt: new Date().toISOString(),
+          revisedBy: user?.username || user?.name || user?.email || 'you',
+          previousTitle: reviseTarget.title || '',
+          newTitle: reviseForm.title,
+          previousPrice: reviseTarget.price ?? null,
+          newPrice: reviseForm.price !== '' ? Number(reviseForm.price) : null
+        }
+      }));
+      setReviseTarget(null);
+      setSuccess(data.message || `Revised item ${reviseTarget.itemId}`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to revise listing');
+    } finally {
+      setRevising(false);
     }
   };
 
@@ -1141,6 +1220,44 @@ export default function SellerSkuStockCheckPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={Boolean(reviseTarget)} onClose={() => setReviseTarget(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Revise Listing</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Item {reviseTarget?.itemId} &middot; {reviseTarget?.sellerName}
+            </Typography>
+            <TextField
+              label="Title"
+              value={reviseForm.title}
+              onChange={(event) => setReviseForm((prev) => ({ ...prev, title: event.target.value }))}
+              inputProps={{ maxLength: 80 }}
+              helperText={`${reviseForm.title.length}/80 characters`}
+              fullWidth
+            />
+            <TextField
+              label="Price"
+              type="number"
+              value={reviseForm.price}
+              onChange={(event) => setReviseForm((prev) => ({ ...prev, price: event.target.value }))}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviseTarget(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleReviseListing}
+            disabled={revising}
+            startIcon={revising ? <CircularProgress size={16} color="inherit" /> : undefined}
+            sx={{ backgroundColor: BRAND_DARK }}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Drawer
         anchor="right"
         variant="persistent"
@@ -1273,6 +1390,8 @@ export default function SellerSkuStockCheckPage() {
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
+                revisedItems={revisedItems}
+                onReviseItem={openReviseDialog}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
               />
@@ -1285,6 +1404,8 @@ export default function SellerSkuStockCheckPage() {
                 endedItems={endedItems}
                 endingItemId={endingItemId}
                 onEndItem={handleEndItem}
+                revisedItems={revisedItems}
+                onReviseItem={openReviseDialog}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
               />
