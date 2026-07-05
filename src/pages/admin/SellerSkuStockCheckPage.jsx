@@ -703,7 +703,8 @@ export default function SellerSkuStockCheckPage() {
         itemId: sellerItemRow.itemId,
         source: 'amazon_stock_check',
         sku: verifyData?.sku || '',
-        country: verifyData?.country || ''
+        country: verifyData?.country || '',
+        run: activeRun?._id || ''
       });
       setEndedItems((prev) => ({
         ...prev,
@@ -795,7 +796,8 @@ export default function SellerSkuStockCheckPage() {
           itemId: row.itemId,
           source: 'amazon_stock_check',
           sku: verifyData?.sku || '',
-          country: verifyData?.country || ''
+          country: verifyData?.country || '',
+          run: activeRun?._id || ''
         });
         okCount += 1;
         setEndedItems((prev) => ({

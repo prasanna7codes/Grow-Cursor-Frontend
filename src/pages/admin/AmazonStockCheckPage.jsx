@@ -372,7 +372,10 @@ export default function AmazonStockCheckPage() {
       await api.post('/ebay/end-item', {
         sellerId: sellerItem.sellerId,
         itemId: sellerItem.itemId,
-        source: 'amazon_stock_check'
+        source: 'amazon_stock_check',
+        sku: sellerItem.sku || '',
+        country: sellerItem.country || '',
+        run: activeRun?._id || ''
       });
       setSuccess(`Ended item ${sellerItem.itemId}`);
       await fetchRun(activeRun._id);
@@ -896,7 +899,7 @@ export default function AmazonStockCheckPage() {
                                             startIcon={<StopCircleIcon />}
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              handleEndItem(sellerItem);
+                                              handleEndItem({ ...sellerItem, sku: item.sku, country: item.country });
                                             }}
                                           >
                                             End
