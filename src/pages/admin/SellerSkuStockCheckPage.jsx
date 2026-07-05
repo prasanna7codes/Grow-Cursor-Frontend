@@ -62,6 +62,7 @@ function getAmazonUrl(item) {
 
 const STATUS_LABELS = {
   in_stock: 'In stock',
+  in_stock_unconfirmed: 'In stock (unconfirmed)',
   low_stock: 'Low stock',
   out_of_stock: 'Out of stock',
   unknown_stock_text: 'Unknown stock text',
@@ -76,6 +77,7 @@ const FILTER_LABELS = {
   actionable: 'Actionable',
   checked: 'Checked',
   in_stock: 'In Stock',
+  in_stock_unconfirmed: 'In Stock (Unconfirmed)',
   low_stock: 'Low Stock',
   out_of_stock: 'Out of Stock',
   unknown_stock_text: 'Unknown Stock Text',
@@ -95,6 +97,7 @@ function formatDateTime(value) {
 
 function statusColor(status) {
   if (status === 'in_stock') return 'success';
+  if (status === 'in_stock_unconfirmed') return 'info';
   if (status === 'low_stock' || status === 'unknown_stock_text') return 'warning';
   if (status === 'out_of_stock' || status === 'error') return 'error';
   return 'default';
@@ -109,7 +112,10 @@ function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
     default: { bg: '#fff', border: '#e5e7eb', color: BRAND_DARK },
     good: { bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' },
     warn: { bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' },
-    bad: { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' }
+    bad: { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' },
+    // Inferred (not Amazon-confirmed) availability — kept visually distinct
+    // from "good" so it never reads as a confirmed in-stock result.
+    info: { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' }
   };
   const palette = colors[tone] || colors.default;
   return (
@@ -978,6 +984,7 @@ export default function SellerSkuStockCheckPage() {
             <Grid item xs={6} md={1.5}><KpiCard label="Total SKUs" value={activeRun.totalSkus} active={activeFilter === 'all'} onClick={() => applyFilter('all')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Checked" value={activeRun.checkedCount} active={activeFilter === 'checked'} onClick={() => applyFilter('checked')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="In Stock" value={activeRun.inStockCount} tone="good" active={activeFilter === 'in_stock'} onClick={() => applyFilter('in_stock')} /></Grid>
+            <Grid item xs={6} md={1.5}><KpiCard label="In Stock (Unconfirmed)" value={activeRun.inStockUnconfirmedCount || itemCounts.in_stock_unconfirmed || 0} tone="info" active={activeFilter === 'in_stock_unconfirmed'} onClick={() => applyFilter('in_stock_unconfirmed')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={activeFilter === 'low_stock'} onClick={() => applyFilter('low_stock')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={activeFilter === 'out_of_stock'} onClick={() => applyFilter('out_of_stock')} /></Grid>
             <Grid item xs={6} md={1.5}><KpiCard label="No ASIN" value={activeRun.noAsinCount} active={activeFilter === 'no_asin'} onClick={() => applyFilter('no_asin')} /></Grid>
