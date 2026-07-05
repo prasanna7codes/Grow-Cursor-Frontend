@@ -158,7 +158,7 @@ export default function AmazonStockCheckPage() {
 
   const [mode, setMode] = useState('pilot_option_b');
   const [currencies, setCurrencies] = useState(['USD']);
-  const [threshold, setThreshold] = useState(10);
+  const [threshold, setThreshold] = useState(5);
   const [autoZeroQuantity, setAutoZeroQuantity] = useState(true);
   const [estimate, setEstimate] = useState(null);
   const [runs, setRuns] = useState([]);

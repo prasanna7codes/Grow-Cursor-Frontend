@@ -332,7 +332,7 @@ export default function SellerSkuStockCheckPage() {
   const [selectedSeller, setSelectedSeller] = useState(null);
   const [summary, setSummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
-  const [threshold, setThreshold] = useState(10);
+  const [threshold, setThreshold] = useState(5);
   const [starting, setStarting] = useState(false);
 
   const [runs, setRuns] = useState([]);
