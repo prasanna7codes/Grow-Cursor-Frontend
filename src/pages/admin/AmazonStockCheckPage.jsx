@@ -1256,7 +1256,7 @@ export default function AmazonStockCheckPage() {
             {runs.map((run) => (
               <Button
                 key={run._id}
-                variant={activeRun?._id === run._id ? 'contained' : 'outlined'}
+                variant="outlined"
                 onClick={() => {
                   setActiveRun(run);
                   setActiveFilters(['actionable']);
@@ -1270,34 +1270,25 @@ export default function AmazonStockCheckPage() {
                   textAlign: 'left',
                   textTransform: 'none',
                   p: 1.75,
-                  backgroundColor: activeRun?._id === run._id ? BRAND_DARK : undefined
+                  backgroundColor: activeRun?._id === run._id ? '#e9ec35' : '#fff',
+                  borderColor: activeRun?._id === run._id ? '#2563eb' : undefined,
+                  borderWidth: activeRun?._id === run._id ? 2 : 1,
+                  '&:hover': {
+                    backgroundColor: activeRun?._id === run._id ? '#e0edff' : undefined
+                  }
                 }}
               >
                 <Stack spacing={0.75} sx={{ width: '100%' }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Chip
-                      size="small"
-                      variant={activeRun?._id === run._id ? 'filled' : 'outlined'}
-                      label={run.mode}
-                      sx={{
-                        fontWeight: 800,
-                        color: activeRun?._id === run._id ? '#fff' : undefined,
-                        borderColor: activeRun?._id === run._id ? 'rgba(255,255,255,0.5)' : undefined
-                      }}
-                    />
+                    <Chip size="small" variant="outlined" label={run.mode} sx={{ fontWeight: 800 }} />
                     <Chip
                       size="small"
                       label={(run.currencies || []).join(', ') || '-'}
-                      sx={{
-                        fontWeight: 900,
-                        fontFamily: 'monospace',
-                        bgcolor: activeRun?._id === run._id ? 'rgba(255,255,255,0.15)' : '#eef2ff',
-                        color: activeRun?._id === run._id ? '#fff' : '#3730a3'
-                      }}
+                      sx={{ fontWeight: 900, fontFamily: 'monospace', bgcolor: '#eef2ff', color: '#3730a3' }}
                     />
                   </Stack>
-                  <Typography variant="body1" sx={{ fontWeight: 900 }}>{formatDateTime(run.createdAt)}</Typography>
-                  <Typography variant="caption" sx={{ opacity: 0.85 }}>By {getRunUser(run)}</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 900, color: BRAND_DARK }}>{formatDateTime(run.createdAt)}</Typography>
+                  <Typography variant="caption" color="text.secondary">By {getRunUser(run)}</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Chip
                       size="small"
