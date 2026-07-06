@@ -57,6 +57,7 @@ const CURRENCY_OPTIONS = [
 
 const STATUS_LABELS = {
   in_stock: 'In stock',
+  in_stock_unconfirmed: 'In stock (unconfirmed)',
   low_stock: 'Low stock',
   out_of_stock: 'Out of stock',
   unknown_stock_text: 'Unknown stock text',
@@ -70,6 +71,7 @@ const FILTER_LABELS = {
   all: 'All',
   actionable: 'Actionable',
   checked: 'Checked',
+  in_stock_unconfirmed: 'In Stock (Unconfirmed)',
   low_stock: 'Low Stock',
   out_of_stock: 'Out of Stock',
   unknown_stock_text: 'Unknown Stock Text',
@@ -89,7 +91,10 @@ function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
     default: { bg: '#fff', border: '#e5e7eb', color: BRAND_DARK },
     good: { bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' },
     warn: { bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' },
-    bad: { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' }
+    bad: { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' },
+    // Inferred (not Amazon-confirmed) availability — kept visually distinct
+    // from "good" so it never reads as a confirmed in-stock result.
+    info: { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' }
   };
   const palette = colors[tone] || colors.default;
   return (
@@ -116,6 +121,7 @@ function KpiCard({ label, value, tone = 'default', active = false, onClick }) {
 
 function statusColor(status) {
   if (status === 'in_stock') return 'success';
+  if (status === 'in_stock_unconfirmed') return 'info';
   if (status === 'low_stock' || status === 'unknown_stock_text') return 'warning';
   if (status === 'out_of_stock' || status === 'error') return 'error';
   return 'default';
@@ -152,7 +158,7 @@ export default function AmazonStockCheckPage() {
 
   const [mode, setMode] = useState('pilot_option_b');
   const [currencies, setCurrencies] = useState(['USD']);
-  const [threshold, setThreshold] = useState(10);
+  const [threshold, setThreshold] = useState(5);
   const [autoZeroQuantity, setAutoZeroQuantity] = useState(true);
   const [estimate, setEstimate] = useState(null);
   const [runs, setRuns] = useState([]);
@@ -366,7 +372,10 @@ export default function AmazonStockCheckPage() {
       await api.post('/ebay/end-item', {
         sellerId: sellerItem.sellerId,
         itemId: sellerItem.itemId,
-        source: 'amazon_stock_check'
+        source: 'amazon_stock_check',
+        sku: sellerItem.sku || '',
+        country: sellerItem.country || '',
+        run: activeRun?._id || ''
       });
       setSuccess(`Ended item ${sellerItem.itemId}`);
       await fetchRun(activeRun._id);
@@ -605,6 +614,7 @@ export default function AmazonStockCheckPage() {
           <Grid item xs={6} md={2}><KpiCard label="Status" value={activeRun.status} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Total SKUs" value={activeRun.totalSkus} active={isFilterActive('all')} onClick={() => applyFilter('all')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Checked" value={activeRun.checkedCount} active={isFilterActive('checked')} onClick={() => applyFilter('checked')} /></Grid>
+          <Grid item xs={6} md={2}><KpiCard label="In Stock (Unconfirmed)" value={activeRun.inStockUnconfirmedCount || itemCounts.in_stock_unconfirmed || 0} tone="info" active={isFilterActive('in_stock_unconfirmed')} onClick={() => applyFilter('in_stock_unconfirmed')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Low Stock" value={activeRun.lowStockCount} tone="warn" active={isFilterActive('low_stock')} onClick={() => applyFilter('low_stock')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Out of Stock" value={activeRun.outOfStockCount} tone="bad" active={isFilterActive('out_of_stock')} onClick={() => applyFilter('out_of_stock')} /></Grid>
           <Grid item xs={6} md={2}><KpiCard label="Unknown Stock Text" value={activeRun.unknownStockTextCount || itemCounts.unknown_stock_text || 0} tone="warn" active={isFilterActive('unknown_stock_text')} onClick={() => applyFilter('unknown_stock_text')} /></Grid>
@@ -889,7 +899,7 @@ export default function AmazonStockCheckPage() {
                                             startIcon={<StopCircleIcon />}
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              handleEndItem(sellerItem);
+                                              handleEndItem({ ...sellerItem, sku: item.sku, country: item.country });
                                             }}
                                           >
                                             End

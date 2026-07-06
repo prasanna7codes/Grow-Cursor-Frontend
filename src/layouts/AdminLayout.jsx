@@ -115,8 +115,10 @@ const SkuIndexSyncPage = lazy(() => import('../pages/admin/SkuIndexSyncPage.jsx'
 const DuplicateSkusPage = lazy(() => import('../pages/admin/DuplicateSkusPage.jsx'));
 const SkuIndexDashboardPage = lazy(() => import('../pages/admin/SkuIndexDashboardPage.jsx'));
 const AmazonStockCheckPage = lazy(() => import('../pages/admin/AmazonStockCheckPage.jsx'));
+const SellerSkuStockCheckPage = lazy(() => import('../pages/admin/SellerSkuStockCheckPage.jsx'));
 const SkuSellerProfitPage = lazy(() => import('../pages/admin/SkuSellerProfitPage.jsx'));
 const EndListingStatsPage = lazy(() => import('../pages/admin/EndListingStatsPage.jsx'));
+const EndListingByDatePage = lazy(() => import('../pages/admin/EndListingByDatePage.jsx'));
 const CRPAnalyticsPage = lazy(() => import('../pages/admin/CRPAnalyticsPage.jsx'));
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 const SellerAnalyticsPage = lazy(() => import('../pages/admin/SellerAnalyticsPage.jsx'));
@@ -337,8 +339,10 @@ const COMPONENT_MAP = {
   'DuplicateSkus': DuplicateSkusPage,
   'SkuIndexDashboard': SkuIndexDashboardPage,
   'AmazonStockCheck': AmazonStockCheckPage,
+  'SellerSkuStockCheck': SellerSkuStockCheckPage,
   'SkuSellerOrderProfit': SkuSellerProfitPage,
   'EndListingStats': EndListingStatsPage,
+  'EndListingByDate': EndListingByDatePage,
   'BestOffers': BestOffersPage,
   'IdeasAndIssues': IdeasPage,
   'TeamChat': InternalMessagesPage,
