@@ -51,6 +51,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ImageIcon from '@mui/icons-material/Image';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import { BRAND_DARK } from '../../constants/brandTheme';
@@ -151,8 +152,8 @@ function statusColor(status) {
   return 'default';
 }
 
-function getOrderCount(item) {
-  return (item.sellerItems || []).reduce((sum, row) => sum + (row.orderCount || 0), 0);
+function getOrderCount(sellerItems) {
+  return (sellerItems || []).reduce((sum, row) => sum + (row.orderCount || 0), 0);
 }
 
 function formatDateTime(value) {
@@ -416,6 +417,7 @@ export default function AmazonStockCheckPage() {
 
   const [sellers, setSellers] = useState([]);
   const [sellerFilter, setSellerFilter] = useState(null);
+  const [recentRunsOpen, setRecentRunsOpen] = useState(false);
 
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -753,6 +755,14 @@ export default function AmazonStockCheckPage() {
     });
   };
 
+  // When a seller filter is active, every count/list/action in the table and
+  // verify drawer scopes down to just that seller's own listing(s) for the
+  // SKU — other sellers who also carry it are hidden entirely, not just the
+  // top-level row inclusion.
+  const getVisibleSellerItems = (sellerItems = []) => (
+    sellerFilter ? sellerItems.filter((row) => String(row.sellerId) === String(sellerFilter._id)) : sellerItems
+  );
+
   const getQtyZeroSummary = (sellerItems = []) => {
     const successCount = sellerItems.filter((row) => row.quantityZeroStatus === 'success').length;
     const failedCount = sellerItems.filter((row) => row.quantityZeroStatus === 'failed').length;
@@ -790,12 +800,16 @@ export default function AmazonStockCheckPage() {
   // is left for manual review, not just the specific rows with orders.
   const getAutoSelectRows = (data) => {
     if (!data) return [];
-    const rows = data.sellerItems || [];
+    // Based on the visible (possibly seller-scoped) rows, not every seller
+    // carrying the SKU — so filtering to one seller reflects their own
+    // order history, not a different seller's.
+    const rows = getVisibleSellerItems(data.sellerItems || []);
     if (data.status === 'out_of_stock') {
       return rows.filter((row) => !row.endedInfo);
     }
-    if (data.status === 'low_stock' && !data.hasRecentOrder90d) {
-      return rows.filter((row) => !row.endedInfo);
+    if (data.status === 'low_stock') {
+      const hasRecentOrder = rows.some((row) => (row.orderCount90d || 0) > 0);
+      if (!hasRecentOrder) return rows.filter((row) => !row.endedInfo);
     }
     return [];
   };
@@ -829,7 +843,7 @@ export default function AmazonStockCheckPage() {
         }
       }
       if (data.amazonUrl && data.amazonUrl !== getAmazonUrl(item)) openAmazonWindow(data.amazonUrl);
-      const imageItemIds = [...new Set((data.sellerItems || []).map((row) => row.itemId).filter(Boolean))];
+      const imageItemIds = [...new Set(getVisibleSellerItems(data.sellerItems || []).map((row) => row.itemId).filter(Boolean))];
       if (imageItemIds.length && sellerFilter?._id) {
         imageRequestRef.current = item._id;
         api.post('/amazon-stock-checks/live-images', { sellerId: sellerFilter._id, itemIds: imageItemIds })
@@ -928,7 +942,7 @@ export default function AmazonStockCheckPage() {
   // Adds (doesn't replace) this SKU's no-recent-order rows to the running
   // selection — a manual top-up for rows the auto-select rule skipped.
   const selectNoOrderItems = () => {
-    const rows = (verifyData?.sellerItems || [])
+    const rows = getVisibleSellerItems(verifyData?.sellerItems || [])
       .filter((row) => row.orderCount90d === 0 && !(endedItems[row.itemId] || row.endedInfo));
     setSelectedRows((prev) => {
       const next = new Map(prev);
@@ -939,7 +953,7 @@ export default function AmazonStockCheckPage() {
 
   // Removes only the current SKU's rows from the running selection.
   const clearCurrentSkuSelection = () => {
-    const currentIds = new Set((verifyData?.sellerItems || []).map((row) => row.itemId));
+    const currentIds = new Set(getVisibleSellerItems(verifyData?.sellerItems || []).map((row) => row.itemId));
     setSelectedRows((prev) => {
       const next = new Map(prev);
       for (const id of currentIds) next.delete(id);
@@ -1061,6 +1075,13 @@ export default function AmazonStockCheckPage() {
             renderInput={(params) => <TextField {...params} label="Seller" placeholder="All sellers" />}
           />
           {sellerFilter && (
+            <Chip
+              label={`Viewing: ${sellerFilter.user?.username || sellerFilter.user?.email || sellerFilter._id}`}
+              color="primary"
+              sx={{ fontWeight: 900, fontSize: 14, py: 2.25, backgroundColor: BRAND_DARK }}
+            />
+          )}
+          {sellerFilter && (
             <Button variant="outlined" onClick={() => handleSellerFilterChange(null)}>
               Clear
             </Button>
@@ -1068,116 +1089,120 @@ export default function AmazonStockCheckPage() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={3}>
-            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Run Mode</Typography>
-            <Select fullWidth size="small" value={mode} onChange={(event) => setMode(event.target.value)}>
-              <MenuItem value="pilot_option_b">Pilot Option B - 195 credits</MenuItem>
-              <MenuItem value="custom">Custom country run</MenuItem>
-              <MenuItem value="full">Full selected countries</MenuItem>
-            </Select>
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Countries</Typography>
-            <Select
-              fullWidth
-              size="small"
-              value={selectedCountryValue}
-              disabled={mode !== 'custom'}
-              onChange={(event) => setCurrencies([event.target.value])}
-            >
-              {mode !== 'custom' && (
-                <MenuItem value="ALL">All supported countries (USD, AUD, CAD, GBP)</MenuItem>
-              )}
-              {CURRENCY_OPTIONS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label} ({option.value}, {option.credits} credit{option.credits > 1 ? 's' : ''})
-                </MenuItem>
-              ))}
-            </Select>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Low Stock Threshold</Typography>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              value={threshold}
-              onChange={(event) => setThreshold(event.target.value)}
-              inputProps={{ min: 1 }}
-            />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <Stack direction="row" spacing={1} sx={{ mt: { md: 2 } }} alignItems="center">
-              {canRun && (
-                <>
+      {canRun ? (
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={3}>
+              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Run Mode</Typography>
+              <Select fullWidth size="small" value={mode} onChange={(event) => setMode(event.target.value)}>
+                <MenuItem value="pilot_option_b">Pilot Option B - 195 credits</MenuItem>
+                <MenuItem value="custom">Custom country run</MenuItem>
+                <MenuItem value="full">Full selected countries</MenuItem>
+              </Select>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Countries</Typography>
+              <Select
+                fullWidth
+                size="small"
+                value={selectedCountryValue}
+                disabled={mode !== 'custom'}
+                onChange={(event) => setCurrencies([event.target.value])}
+              >
+                {mode !== 'custom' && (
+                  <MenuItem value="ALL">All supported countries (USD, AUD, CAD, GBP)</MenuItem>
+                )}
+                {CURRENCY_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label} ({option.value}, {option.credits} credit{option.credits > 1 ? 's' : ''})
+                  </MenuItem>
+                ))}
+              </Select>
+            </Grid>
+            <Grid item xs={6} md={2}>
+              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>Low Stock Threshold</Typography>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={threshold}
+                onChange={(event) => setThreshold(event.target.value)}
+                inputProps={{ min: 1 }}
+              />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Stack direction="row" spacing={1} sx={{ mt: { md: 2 } }} alignItems="center">
+                <Button
+                  variant="outlined"
+                  startIcon={loadingEstimate ? <CircularProgress size={16} /> : <RefreshIcon />}
+                  onClick={handleEstimate}
+                  disabled={loadingEstimate || starting || isRunning}
+                >
+                  Estimate
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
+                  onClick={handleStart}
+                  disabled={starting || isRunning || isPaused}
+                  sx={{ backgroundColor: BRAND_DARK }}
+                >
+                  Start
+                </Button>
+                {isRunning && (
                   <Button
                     variant="outlined"
-                    startIcon={loadingEstimate ? <CircularProgress size={16} /> : <RefreshIcon />}
-                    onClick={handleEstimate}
-                    disabled={loadingEstimate || starting || isRunning}
+                    color="warning"
+                    startIcon={<PauseIcon />}
+                    onClick={() => handleRunAction('pause')}
                   >
-                    Estimate
+                    Pause
                   </Button>
+                )}
+                {isPaused && (
                   <Button
-                    variant="contained"
-                    startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
-                    onClick={handleStart}
-                    disabled={starting || isRunning || isPaused}
-                    sx={{ backgroundColor: BRAND_DARK }}
+                    variant="outlined"
+                    startIcon={<PlayArrowIcon />}
+                    onClick={() => handleRunAction('resume')}
                   >
-                    Start
+                    Resume
                   </Button>
-                  {isRunning && (
-                    <Button
-                      variant="outlined"
-                      color="warning"
-                      startIcon={<PauseIcon />}
-                      onClick={() => handleRunAction('pause')}
-                    >
-                      Pause
-                    </Button>
-                  )}
-                  {isPaused && (
-                    <Button
-                      variant="outlined"
-                      startIcon={<PlayArrowIcon />}
-                      onClick={() => handleRunAction('resume')}
-                    >
-                      Resume
-                    </Button>
-                  )}
-                  {activeRun && ['queued', 'running', 'paused'].includes(activeRun.status) && (
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      startIcon={<StopCircleIcon />}
-                      onClick={() => handleRunAction('cancel')}
-                    >
-                      Cancel
-                    </Button>
-                  )}
-                </>
-              )}
-              {isSuperAdmin && (
-                <Tooltip title="Manage who can Estimate/Start runs">
-                  <IconButton size="small" onClick={openAccessDialog}>
-                    <LockPersonIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </Stack>
+                )}
+                {activeRun && ['queued', 'running', 'paused'].includes(activeRun.status) && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<StopCircleIcon />}
+                    onClick={() => handleRunAction('cancel')}
+                  >
+                    Cancel
+                  </Button>
+                )}
+                {isSuperAdmin && (
+                  <Tooltip title="Manage who can Estimate/Start runs">
+                    <IconButton size="small" onClick={openAccessDialog}>
+                      <LockPersonIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Stack>
+            </Grid>
           </Grid>
-        </Grid>
 
-        {estimate && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            Estimate: {formatNumber(estimate.totalSkus)} non-empty SKUs selected from the SKU index, {formatNumber(estimate.asinFoundCount)} base SKUs mapped to ASINs and ready to check,
-            {' '}{formatNumber(estimate.noAsinCount)} with no ASIN found for base SKU, estimated {formatNumber(estimate.creditsEstimated)} credits.
-          </Alert>
-        )}
-      </Paper>
+          {estimate && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Estimate: {formatNumber(estimate.totalSkus)} non-empty SKUs selected from the SKU index, {formatNumber(estimate.asinFoundCount)} base SKUs mapped to ASINs and ready to check,
+              {' '}{formatNumber(estimate.noAsinCount)} with no ASIN found for base SKU, estimated {formatNumber(estimate.creditsEstimated)} credits.
+            </Alert>
+          )}
+        </Paper>
+      ) : (
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            You have view-only access to this page — you can browse, verify, and end listings, but starting or configuring new stock check runs requires permission from a superadmin.
+          </Typography>
+        </Paper>
+      )}
 
       {activeRun && (
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
@@ -1202,59 +1227,111 @@ export default function AmazonStockCheckPage() {
       )}
 
       <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, mb: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Recent Runs</Typography>
-          {loadingRuns && <CircularProgress size={16} />}
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+          sx={{ cursor: 'pointer' }}
+          onClick={() => setRecentRunsOpen((prev) => !prev)}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Recent Runs</Typography>
+            {activeRun && (
+              <Chip
+                size="small"
+                label={`Active: ${getRunScope(activeRun)} · ${formatDateTime(activeRun.createdAt)}`}
+                sx={{ fontWeight: 700 }}
+              />
+            )}
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center">
+            {loadingRuns && <CircularProgress size={16} />}
+            <IconButton size="small">
+              <ExpandMoreIcon sx={{ transform: recentRunsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+            </IconButton>
+          </Stack>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
-          {runs.map((run) => (
-            <Button
-              key={run._id}
-              variant={activeRun?._id === run._id ? 'contained' : 'outlined'}
-              onClick={() => {
-                setActiveRun(run);
-                setActiveFilters(['actionable']);
-                setPagination((prev) => ({ ...prev, page: 1, total: 0, totalPages: 1 }));
-                setExpandedRows(new Set());
-              }}
-              sx={{
-                alignItems: 'flex-start',
-                flex: '0 0 280px',
-                justifyContent: 'flex-start',
-                textAlign: 'left',
-                textTransform: 'none',
-                backgroundColor: activeRun?._id === run._id ? BRAND_DARK : undefined
-              }}
-            >
-              <Stack spacing={0.25} sx={{ width: '100%' }}>
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>{getRunScope(run)}</Typography>
-                <Typography variant="caption">{formatDateTime(run.createdAt)}</Typography>
-                <Typography variant="caption">By {getRunUser(run)}</Typography>
-                <Typography variant="caption" sx={{ fontWeight: 900 }}>
-                  {run.status} | {formatNumber(run.checkedCount)}/{formatNumber(run.totalSkus)}
-                </Typography>
-              </Stack>
-            </Button>
-          ))}
-          {!runs.length && <Typography variant="body2" color="text.secondary">No runs yet.</Typography>}
-        </Stack>
-        <TablePagination
-          component="div"
-          count={runPagination.total || 0}
-          page={Math.max(0, (runPagination.page || 1) - 1)}
-          onPageChange={(_event, nextPage) => {
-            setRunPagination((prev) => ({ ...prev, page: nextPage + 1 }));
-          }}
-          rowsPerPage={runPagination.limit || 20}
-          onRowsPerPageChange={(event) => {
-            setRunPagination((prev) => ({
-              ...prev,
-              page: 1,
-              limit: Number.parseInt(event.target.value, 10)
-            }));
-          }}
-          rowsPerPageOptions={[10, 20, 50]}
-        />
+        <Collapse in={recentRunsOpen} timeout="auto" unmountOnExit>
+          <Stack direction="row" spacing={1.5} sx={{ overflowX: 'auto', pt: 1.5, pb: 0.5 }}>
+            {runs.map((run) => (
+              <Button
+                key={run._id}
+                variant={activeRun?._id === run._id ? 'contained' : 'outlined'}
+                onClick={() => {
+                  setActiveRun(run);
+                  setActiveFilters(['actionable']);
+                  setPagination((prev) => ({ ...prev, page: 1, total: 0, totalPages: 1 }));
+                  setExpandedRows(new Set());
+                }}
+                sx={{
+                  alignItems: 'flex-start',
+                  flex: '0 0 340px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  textTransform: 'none',
+                  p: 1.75,
+                  backgroundColor: activeRun?._id === run._id ? BRAND_DARK : undefined
+                }}
+              >
+                <Stack spacing={0.75} sx={{ width: '100%' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Chip
+                      size="small"
+                      variant={activeRun?._id === run._id ? 'filled' : 'outlined'}
+                      label={run.mode}
+                      sx={{
+                        fontWeight: 800,
+                        color: activeRun?._id === run._id ? '#fff' : undefined,
+                        borderColor: activeRun?._id === run._id ? 'rgba(255,255,255,0.5)' : undefined
+                      }}
+                    />
+                    <Chip
+                      size="small"
+                      label={(run.currencies || []).join(', ') || '-'}
+                      sx={{
+                        fontWeight: 900,
+                        fontFamily: 'monospace',
+                        bgcolor: activeRun?._id === run._id ? 'rgba(255,255,255,0.15)' : '#eef2ff',
+                        color: activeRun?._id === run._id ? '#fff' : '#3730a3'
+                      }}
+                    />
+                  </Stack>
+                  <Typography variant="body1" sx={{ fontWeight: 900 }}>{formatDateTime(run.createdAt)}</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.85 }}>By {getRunUser(run)}</Typography>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Chip
+                      size="small"
+                      label={run.status}
+                      color={run.status === 'completed' ? 'success' : run.status === 'cancelled' || run.status === 'failed' ? 'error' : 'default'}
+                      sx={{ fontWeight: 800 }}
+                    />
+                    <Typography variant="caption" sx={{ fontWeight: 900 }}>
+                      {formatNumber(run.checkedCount)}/{formatNumber(run.totalSkus)}
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </Button>
+            ))}
+            {!runs.length && <Typography variant="body2" color="text.secondary">No runs yet.</Typography>}
+          </Stack>
+          <TablePagination
+            component="div"
+            count={runPagination.total || 0}
+            page={Math.max(0, (runPagination.page || 1) - 1)}
+            onPageChange={(_event, nextPage) => {
+              setRunPagination((prev) => ({ ...prev, page: nextPage + 1 }));
+            }}
+            rowsPerPage={runPagination.limit || 20}
+            onRowsPerPageChange={(event) => {
+              setRunPagination((prev) => ({
+                ...prev,
+                page: 1,
+                limit: Number.parseInt(event.target.value, 10)
+              }));
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        </Collapse>
       </Paper>
 
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
@@ -1299,9 +1376,10 @@ export default function AmazonStockCheckPage() {
               </TableHead>
               <TableBody>
                 {displayItems.map((item, index) => {
-                  const orderCount = getOrderCount(item);
+                  const visibleSellerItems = getVisibleSellerItems(item.sellerItems || []);
+                  const orderCount = getOrderCount(visibleSellerItems);
                   const expanded = expandedRows.has(item._id);
-                  const qtySummary = getQtyZeroSummary(item.sellerItems || []);
+                  const qtySummary = getQtyZeroSummary(visibleSellerItems);
                   const expandedPalette = index % 2 === 0
                     ? { row: '#f8fbff', detail: '#eff6ff', rail: '#2563eb', line: '#bfdbfe' }
                     : { row: '#fffaf0', detail: '#fff7ed', rail: '#f97316', line: '#fed7aa' };
@@ -1359,7 +1437,7 @@ export default function AmazonStockCheckPage() {
                             {!qtySummary.successCount && !qtySummary.failedCount && !qtySummary.pendingCount && <Typography variant="body2" color="text.secondary">-</Typography>}
                           </Stack>
                         </TableCell>
-                        <TableCell>{formatNumber(item.sellerItems?.length || 0)}</TableCell>
+                        <TableCell>{formatNumber(visibleSellerItems.length)}</TableCell>
                         <TableCell>{formatNumber(orderCount)}</TableCell>
                         <TableCell align="right">
                           <Button
@@ -1401,7 +1479,10 @@ export default function AmazonStockCheckPage() {
                               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Seller item breakdown</Typography>
                                 <Chip size="small" label={item.sku} sx={{ fontWeight: 900 }} />
-                                <Chip size="small" label={`${item.sellerItems?.length || 0} item IDs`} />
+                                <Chip size="small" label={`${visibleSellerItems.length} item IDs`} />
+                                {sellerFilter && (
+                                  <Chip size="small" variant="outlined" color="primary" label="This seller only" />
+                                )}
                               </Stack>
                               <Table size="small">
                                 <TableHead>
@@ -1416,7 +1497,7 @@ export default function AmazonStockCheckPage() {
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                  {(item.sellerItems || []).map((sellerItem) => (
+                                  {visibleSellerItems.map((sellerItem) => (
                                     <TableRow key={`${sellerItem.sellerId}-${sellerItem.itemId}`}>
                                       <TableCell>{sellerItem.sellerName}</TableCell>
                                       <TableCell>
@@ -1746,7 +1827,7 @@ export default function AmazonStockCheckPage() {
                 </Button>
               </Stack>
               <SellerItemsSection
-                rows={verifyData.sellerItems || []}
+                rows={getVisibleSellerItems(verifyData.sellerItems || [])}
                 currentSku={verifyData.sku}
                 images={verifyImages}
                 endedItems={endedItems}
