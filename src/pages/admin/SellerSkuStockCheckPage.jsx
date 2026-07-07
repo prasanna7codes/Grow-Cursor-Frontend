@@ -530,8 +530,7 @@ export default function SellerSkuStockCheckPage() {
       const { data } = await api.post('/amazon-stock-checks/runs', {
         sellerId: selectedSeller._id,
         currencies: [currency],
-        threshold,
-        autoZeroQuantity: false
+        threshold
       });
       setActiveRun(data.run);
       setItems([]);
