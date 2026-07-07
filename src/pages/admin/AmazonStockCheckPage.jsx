@@ -795,16 +795,17 @@ export default function AmazonStockCheckPage() {
   };
 
   // The seller listings that are safe to bulk-end for this item's status:
-  // everything for out-of-stock; for low-stock, only when NO seller carrying
-  // this SKU has sold in the last 90 days — if even one has, the whole SKU
-  // is left for manual review, not just the specific rows with orders.
+  // everything for out-of-stock and errors; for low-stock, only when NO
+  // seller carrying this SKU has sold in the last 90 days — if even one
+  // has, the whole SKU is left for manual review, not just the specific
+  // rows with orders.
   const getAutoSelectRows = (data) => {
     if (!data) return [];
     // Based on the visible (possibly seller-scoped) rows, not every seller
     // carrying the SKU — so filtering to one seller reflects their own
     // order history, not a different seller's.
     const rows = getVisibleSellerItems(data.sellerItems || []);
-    if (data.status === 'out_of_stock') {
+    if (data.status === 'out_of_stock' || data.status === 'error') {
       return rows.filter((row) => !row.endedInfo);
     }
     if (data.status === 'low_stock') {
