@@ -70,6 +70,11 @@ const CURRENCY_OPTIONS = [
 const AMAZON_DOMAINS = { USD: 'com', AUD: 'com.au', CAD: 'ca', GBP: 'co.uk' };
 
 const VERIFY_DRAWER_WIDTH = 700;
+// Bulk-end review dialog only renders up to this many rows — selecting
+// thousands of listings would otherwise mean thousands of real DOM rows in
+// one paint, which can visibly freeze the tab. Selection and the actual
+// end-item calls are unaffected; this only caps what gets drawn for review.
+const BULK_END_REVIEW_ROW_CAP = 100;
 
 function getAmazonUrl(item) {
   const domain = AMAZON_DOMAINS[String(item?.currency || '').toUpperCase()];
@@ -1851,7 +1856,7 @@ export default function AmazonStockCheckPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {Array.from(selectedRows.values()).map((row) => (
+              {Array.from(selectedRows.values()).slice(0, BULK_END_REVIEW_ROW_CAP).map((row) => (
                 <TableRow key={row.itemId}>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{row.sku}</TableCell>
                   <TableCell>{row.sellerName}</TableCell>
@@ -1861,6 +1866,11 @@ export default function AmazonStockCheckPage() {
               ))}
             </TableBody>
           </Table>
+          {selectedRows.size > BULK_END_REVIEW_ROW_CAP && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+              + {formatNumber(selectedRows.size - BULK_END_REVIEW_ROW_CAP)} more not shown (all {formatNumber(selectedRows.size)} will still be ended)
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkEndReviewOpen(false)}>Cancel</Button>
