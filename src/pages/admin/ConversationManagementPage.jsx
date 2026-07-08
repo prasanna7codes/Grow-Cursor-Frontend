@@ -958,6 +958,7 @@ export default function ConversationManagementPage() {
                 <MenuItem value="Return - Replace">Replace</MenuItem>
                 <MenuItem value="Out of Stock">Out of Stock</MenuItem>
                 <MenuItem value="Issue with Product">Issue with Product</MenuItem>
+                <MenuItem value="Issue with Delivery">Issue with Delivery</MenuItem>
                 <MenuItem value="Inquiry">Inquiry</MenuItem>
               </Select>
             </FormControl>
