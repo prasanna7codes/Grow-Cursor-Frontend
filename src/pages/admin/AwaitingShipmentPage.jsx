@@ -427,6 +427,7 @@ function ManualTrackingCell({ order, onSaved, onCopy, onNotify }) {
                           <MenuItem value="AUSTRALIA_POST">Australia Post</MenuItem>
                           <MenuItem value="AUSTRALIA_POST_GLOBAL">Australia Post Global</MenuItem>
                           <MenuItem value="ARAMEX_AUSTRALIA">Aramex Australia</MenuItem>
+                          <MenuItem value="TNT_AUSTRALIA">TNT Australia</MenuItem>
                           <MenuItem value="OTHER">Other</MenuItem>
                         </Select>
                       </FormControl>
@@ -453,6 +454,7 @@ function ManualTrackingCell({ order, onSaved, onCopy, onNotify }) {
                 <MenuItem value="AUSTRALIA_POST">Australia Post</MenuItem>
                 <MenuItem value="AUSTRALIA_POST_GLOBAL">Australia Post Global</MenuItem>
                 <MenuItem value="ARAMEX_AUSTRALIA">Aramex Australia</MenuItem>
+                <MenuItem value="TNT_AUSTRALIA">TNT Australia</MenuItem>
                 <MenuItem value="OTHER">Other</MenuItem>
               </Select>
             </FormControl>
