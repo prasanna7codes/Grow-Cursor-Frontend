@@ -822,9 +822,12 @@ export default function DisputesPage({ initialTab = 0 }) {
                 >
                   <MenuItem value="">All Statuses</MenuItem>
                   <MenuItem value="OPEN">Open</MenuItem>
-                  <MenuItem value="ON_HOLD">On Hold</MenuItem>
-                  <MenuItem value="WAITING_FOR_SELLER">Waiting for Seller</MenuItem>
+                  <MenuItem value="WAITING_SELLER_RESPONSE">Waiting for Seller</MenuItem>
+                  <MenuItem value="WAITING_BUYER_RESPONSE">Waiting for Buyer</MenuItem>
                   <MenuItem value="CLOSED">Closed</MenuItem>
+                  <MenuItem value="CS_CLOSED">Closed by eBay Support</MenuItem>
+                  <MenuItem value="CLOSED_WITH_ESCALATION">Closed with Escalation</MenuItem>
+                  <MenuItem value="OTHER">Other</MenuItem>
                 </Select>
               </FormControl>
 
