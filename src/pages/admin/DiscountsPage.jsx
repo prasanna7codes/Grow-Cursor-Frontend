@@ -73,12 +73,14 @@ const STATUS_LABELS = {
   DRAFT: 'Draft',
 };
 
+// Only coupons and sale events are shown — volume pricing and order
+// discounts are intentionally excluded from this page.
+const PAGE_TYPES = 'CODED_COUPON,MARKDOWN_SALE';
+
 const TYPE_OPTIONS = [
-  { value: 'ALL', label: 'All types' },
+  { value: 'ALL', label: 'Coupons & Sale events' },
   { value: 'CODED_COUPON', label: 'Coupon' },
   { value: 'MARKDOWN_SALE', label: 'Sale event' },
-  { value: 'ORDER_DISCOUNT', label: 'Order discount' },
-  { value: 'VOLUME_DISCOUNT', label: 'Volume pricing' },
 ];
 
 const TYPE_LABELS = {
@@ -337,7 +339,8 @@ export default function DiscountsPage() {
       const { data } = await api.get('/ebay/discounts/all', {
         params: {
           status: status !== 'ALL' ? status : undefined,
-          type: type !== 'ALL' ? type : undefined,
+          // 'ALL' still means coupons + sale events only, never volume/order discounts
+          ...(type !== 'ALL' ? { type } : { types: PAGE_TYPES }),
           sort: '-START_DATE',
         },
       });
