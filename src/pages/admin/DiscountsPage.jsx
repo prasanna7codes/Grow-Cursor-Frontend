@@ -332,18 +332,27 @@ export default function DiscountsPage() {
   const [copiedCode, setCopiedCode] = useState('');
 
   // ── Fetch discounts for ALL sellers ─────────────────────────────────────────
-  const fetchAll = useCallback(async () => {
+  // The default Active view reads the server's 12-hour cache — opening the
+  // page never calls eBay. Other statuses need a live fetch (the cache only
+  // holds active discounts). "Refresh All" forces a live re-fetch; on the
+  // Active view that also updates the shared cache, so the bell benefits too.
+  const fetchAll = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get('/ebay/discounts/all', {
-        params: {
-          status: status !== 'ALL' ? status : undefined,
-          // 'ALL' still means coupons + sale events only, never volume/order discounts
-          ...(type !== 'ALL' ? { type } : { types: PAGE_TYPES }),
-          sort: '-START_DATE',
-        },
-      });
+      const { data } =
+        status === 'RUNNING'
+          ? await api.get('/ebay/discounts/cached', {
+              params: forceRefresh ? { refresh: 'true' } : {},
+            })
+          : await api.get('/ebay/discounts/all', {
+              params: {
+                status: status !== 'ALL' ? status : undefined,
+                // coupons + sale events only, never volume/order discounts
+                types: PAGE_TYPES,
+                sort: '-START_DATE',
+              },
+            });
       setResults(data.results || []);
       setFetchedAt(data.fetchedAt || new Date().toISOString());
     } catch (err) {
@@ -354,24 +363,27 @@ export default function DiscountsPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, type]);
+  }, [status]);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
   // ── Flatten per-seller results into table rows, urgent + soonest-ending first ─
+  // The type filter is applied here, client-side — switching Coupon/Sale event
+  // never re-fetches, since both types are already loaded.
   const rows = useMemo(() => {
     const flat = results.flatMap((r) =>
       (r.discounts || []).map((d) => ({ ...d, sellerId: r.sellerId, sellerName: r.sellerName }))
     );
-    flat.sort((a, b) => {
+    const typed = type === 'ALL' ? flat : flat.filter((d) => d.promotionType === type);
+    typed.sort((a, b) => {
       const aEnd = a.endDate ? new Date(a.endDate).getTime() : Infinity;
       const bEnd = b.endDate ? new Date(b.endDate).getTime() : Infinity;
       return aEnd - bEnd;
     });
-    return flat;
-  }, [results]);
+    return typed;
+  }, [results, type]);
 
   const failedSellers = useMemo(() => results.filter((r) => r.error), [results]);
 
@@ -491,7 +503,7 @@ export default function DiscountsPage() {
             <Button
               variant="contained"
               startIcon={loading ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <RefreshIcon />}
-              onClick={fetchAll}
+              onClick={() => fetchAll(true)}
               disabled={loading}
               sx={{
                 bgcolor: BRAND_DARK, color: '#fff', fontWeight: 700, minHeight: 40,
