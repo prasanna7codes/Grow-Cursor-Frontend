@@ -123,6 +123,7 @@ export const PAGE_REGISTRY = [
   { id: 'EndListingStats', name: 'End Listing Stats', path: '/end-listing-stats', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'EndListingByDate', name: 'End Listing By Date', path: '/end-listing-by-date', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'BestOffers', name: 'Best Offers', path: '/best-offers', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
+  { id: 'Discounts', name: 'Discounts', path: '/discounts', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
 
   // ====== HR & MANAGEMENT ======
   { id: 'IdeasAndIssues', name: 'Ideas and Issues', path: '/ideas', category: 'hrManagement', defaultRoles: ['superadmin', 'hradmin', 'operationhead', 'listingadmin'] },

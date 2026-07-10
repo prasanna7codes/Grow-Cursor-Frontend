@@ -77,6 +77,7 @@ const EmployeeManagementPage = lazy(() => import('../pages/admin/EmployeeManagem
 const BuyerChatPage = lazy(() => import('../pages/admin/BuyerChatPage.jsx'));
 const FeedUploadPage = lazy(() => import('../pages/ebay/FeedUploadPage.jsx'));
 const BestOffersPage = lazy(() => import('../pages/admin/BestOffersPage.jsx'));
+const DiscountsPage = lazy(() => import('../pages/admin/DiscountsPage.jsx'));
 const SellingPrivilegesPage = lazy(() => import('../pages/admin/SellingPrivilegesPage.jsx'));
 const EbayApiUsagePage = lazy(() => import('../pages/admin/EbayApiUsagePage.jsx'));
 const FeedUploadStatsPage = lazy(() => import('../pages/admin/FeedUploadStatsPage.jsx'));
@@ -169,6 +170,7 @@ const WelcomePage = lazy(() => import('../pages/admin/WelcomePage.jsx'));
 
 import PageLoader from '../components/PageLoader.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
+import DiscountAlertsBell from '../components/DiscountAlertsBell.jsx';
 import usePageAccess from '../hooks/usePageAccess';
 import api, { getAuthToken } from '../lib/api.js';
 import { PAGE_REGISTRY, PAGE_CATEGORIES, SUBMENUS } from '../constants/pages';
@@ -344,6 +346,7 @@ const COMPONENT_MAP = {
   'EndListingStats': EndListingStatsPage,
   'EndListingByDate': EndListingByDatePage,
   'BestOffers': BestOffersPage,
+  'Discounts': DiscountsPage,
   'IdeasAndIssues': IdeasPage,
   'TeamChat': InternalMessagesPage,
   'LeaveAdmin': LeaveAdminPage,
@@ -1003,6 +1006,7 @@ export default function AdminLayout({ user, onLogout }) {
               Grow Mentality | Nurture Proper for The Future
             </Typography>
           </Box>
+          <DiscountAlertsBell />
           <Button
             startIcon={(
               <Badge
