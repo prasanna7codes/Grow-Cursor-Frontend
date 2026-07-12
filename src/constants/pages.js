@@ -79,6 +79,7 @@ export const PAGE_REGISTRY = [
   { id: 'FeedUpload', name: 'Feed Upload (CSV)', path: '/feed-upload', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin', 'lister'] },
   { id: 'FeedUploadStats', name: 'Feed Upload Stats', path: '/feed-upload-stats', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'AiListingUsage', name: 'AI Listing Usage', path: '/ai-listing-usage', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin'] },
+  { id: 'PrecheckAiUsage', name: 'Precheck AI Usage', path: '/precheck-ai-usage', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'DailyListingComparison', name: 'Daily Listing Comparison', path: '/daily-listing-comparison', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'ManualEndListing', name: 'Manual End Listing', path: '/manual-end-listing', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'SkuSellerOrderProfit', name: 'SKU Seller Profit', path: '/sku-seller-profit', category: 'listingResearch', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },

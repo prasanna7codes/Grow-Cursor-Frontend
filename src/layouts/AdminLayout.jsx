@@ -82,6 +82,7 @@ const SellingPrivilegesPage = lazy(() => import('../pages/admin/SellingPrivilege
 const EbayApiUsagePage = lazy(() => import('../pages/admin/EbayApiUsagePage.jsx'));
 const FeedUploadStatsPage = lazy(() => import('../pages/admin/FeedUploadStatsPage.jsx'));
 const AiListingUsagePage = lazy(() => import('../pages/admin/AiListingUsagePage.jsx'));
+const PrecheckAiUsagePage = lazy(() => import('../pages/admin/PrecheckAiUsagePage.jsx'));
 const DailyListingComparisonPage = lazy(() => import('../pages/admin/DailyListingComparisonPage.jsx'));
 const ManualEndListingPage = lazy(() => import('../pages/admin/ManualEndListingPage.jsx'));
 const SellerUploadLimitsPage = lazy(() => import('../pages/admin/SellerUploadLimitsPage.jsx'));
@@ -310,6 +311,7 @@ const COMPONENT_MAP = {
   'FeedUpload': FeedUploadPage,
   'FeedUploadStats': FeedUploadStatsPage,
   'AiListingUsage': AiListingUsagePage,
+  'PrecheckAiUsage': PrecheckAiUsagePage,
   'DailyListingComparison': DailyListingComparisonPage,
   'ManualEndListing': ManualEndListingPage,
   'SellerUploadLimits': SellerUploadLimitsPage,
