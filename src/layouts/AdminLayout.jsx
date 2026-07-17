@@ -137,6 +137,7 @@ const TemplateListingsPage = lazy(() => import('../pages/admin/TemplateListingsP
 const TemplateListingAnalyticsPage = lazy(() => import('../pages/admin/TemplateListingAnalyticsPage.jsx'));
 const SelectSellerPage = lazy(() => import('../pages/admin/SelectSellerPage.jsx'));
 const AsinPrecheckPage = lazy(() => import('../pages/admin/AsinPrecheckPage.jsx'));
+const AsinPrecheckStatsPage = lazy(() => import('../pages/admin/AsinPrecheckStatsPage.jsx'));
 const SellerTemplatesPage = lazy(() => import('../pages/admin/SellerTemplatesPage.jsx'));
 const ListingDirectoryPage = lazy(() => import('../pages/admin/ListingDirectoryPage.jsx'));
 const TemplateDirectoryPage = lazy(() => import('../pages/admin/TemplateDirectoryPage.jsx'));
@@ -304,6 +305,7 @@ const COMPONENT_MAP = {
   'ListingsDatabase': TemplateDatabasePage,
   'SelectSeller': SelectSellerPage,
   'AsinPrecheck': AsinPrecheckPage,
+  'AsinPrecheckStats': AsinPrecheckStatsPage,
   'ListingDirectory': ListingDirectoryPage,
   'TemplateDirectory': TemplateDirectoryPage,
   'AsinDirectory': AsinDirectoryPage,
