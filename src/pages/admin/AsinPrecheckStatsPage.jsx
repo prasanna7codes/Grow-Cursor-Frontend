@@ -21,6 +21,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography
 } from '@mui/material';
@@ -64,6 +67,16 @@ const DAY_OPTIONS = [
   { value: 90, label: 'Last 90 days' },
   { value: 365, label: 'Last year' }
 ];
+
+function todayDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysAgoDateStr(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
 
 function MetricCard({ icon, label, value, hint, tone = 'default' }) {
   const toneColor = {
@@ -129,7 +142,11 @@ function SectionTable({ title, caption, children }) {
 }
 
 export default function AsinPrecheckStatsPage() {
+  const [dateMode, setDateMode] = useState('single'); // 'period' | 'single' | 'range'
   const [days, setDays] = useState(30);
+  const [singleDate, setSingleDate] = useState(todayDateStr);
+  const [startDate, setStartDate] = useState(() => daysAgoDateStr(7));
+  const [endDate, setEndDate] = useState(todayDateStr);
   const [region, setRegion] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -137,15 +154,30 @@ export default function AsinPrecheckStatsPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    // Wait for complete date input before querying
+    if (dateMode === 'single' && !singleDate) return;
+    if (dateMode === 'range' && (!startDate || !endDate)) return;
+
+    const params = { ...(region ? { region } : {}) };
+    if (dateMode === 'single') {
+      params.startDate = singleDate;
+      params.endDate = singleDate;
+    } else if (dateMode === 'range') {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else {
+      params.days = days;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError('');
-    api.get('/template-listings/precheck-stats', { params: { days, ...(region ? { region } : {}) } })
+    api.get('/template-listings/precheck-stats', { params })
       .then((res) => { if (!cancelled) setData(res.data); })
       .catch((e) => { if (!cancelled) setError(e.response?.data?.error || e.message || 'Failed to load stats'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [days, region, reloadKey]);
+  }, [dateMode, days, singleDate, startDate, endDate, region, reloadKey]);
 
   const regionCounts = useMemo(() => {
     const counts = { US: 0, UK: 0, CA: 0, AU: 0 };
@@ -195,14 +227,60 @@ export default function AsinPrecheckStatsPage() {
 
       <Paper sx={{ p: 2, mb: 3, borderRadius: `${dashboardSignatureTokens.radius.card}px`, border: '1px solid', borderColor: alpha(BRAND_DARK, 0.08), boxShadow: dashboardSignatureTokens.shadows.card }}>
         <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2 }} alignItems="center">
-          <FormControl size="small" sx={{ minWidth: 170, backgroundColor: 'background.paper', borderRadius: 1 }}>
-            <InputLabel>Period</InputLabel>
-            <Select label="Period" value={days} onChange={(e) => setDays(e.target.value)}>
-              {DAY_OPTIONS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={dateMode}
+            onChange={(_, value) => { if (value) setDateMode(value); }}
+            aria-label="Date filter mode"
+          >
+            <ToggleButton value="period">Quick Period</ToggleButton>
+            <ToggleButton value="single">Single Date</ToggleButton>
+            <ToggleButton value="range">Date Range</ToggleButton>
+          </ToggleButtonGroup>
+          {dateMode === 'period' && (
+            <FormControl size="small" sx={{ minWidth: 170, backgroundColor: 'background.paper', borderRadius: 1 }}>
+              <InputLabel>Period</InputLabel>
+              <Select label="Period" value={days} onChange={(e) => setDays(e.target.value)}>
+                {DAY_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          {dateMode === 'single' && (
+            <TextField
+              label="Date (PDT)"
+              type="date"
+              size="small"
+              value={singleDate}
+              onChange={(e) => setSingleDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 170, backgroundColor: 'background.paper', borderRadius: 1 }}
+            />
+          )}
+          {dateMode === 'range' && (
+            <>
+              <TextField
+                label="Start Date (PDT)"
+                type="date"
+                size="small"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ minWidth: 170, backgroundColor: 'background.paper', borderRadius: 1 }}
+              />
+              <TextField
+                label="End Date (PDT)"
+                type="date"
+                size="small"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ minWidth: 170, backgroundColor: 'background.paper', borderRadius: 1 }}
+              />
+            </>
+          )}
           <FormControl size="small" sx={{ minWidth: 220, backgroundColor: 'background.paper', borderRadius: 1 }}>
             <InputLabel>Country</InputLabel>
             <Select label="Country" value={region} onChange={(e) => setRegion(e.target.value)}>
