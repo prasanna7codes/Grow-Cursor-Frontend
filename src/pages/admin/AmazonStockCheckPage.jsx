@@ -161,9 +161,18 @@ function getOrderCount(sellerItems) {
   return (sellerItems || []).reduce((sum, row) => sum + (row.orderCount || 0), 0);
 }
 
+// Readable English date, e.g. "Jul 19, 2026, 8:22 PM" (no seconds, no
+// ambiguous all-numeric form).
 function formatDateTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 function getRunUser(run) {
@@ -255,7 +264,8 @@ function SellerItemsSection({
   revisedItems,
   onReviseItem,
   selectedIds,
-  onToggleSelect
+  onToggleSelect,
+  failedItems = {}
 }) {
   return (
     <Box>
@@ -271,6 +281,7 @@ function SellerItemsSection({
         const endedInfo = endedItems[row.itemId] || row.endedInfo;
         const revisedInfo = revisedItems[row.itemId] || row.revisedInfo;
         const busy = endingItemId === row.itemId;
+        const failReason = !endedInfo ? failedItems[row.itemId] : null;
         return (
           <Paper key={`${row.sellerId}-${row.itemId}`} variant="outlined" sx={{ p: 1.25, mb: 1, borderRadius: 2 }}>
             <Stack direction="row" spacing={1} alignItems="center">
@@ -360,6 +371,11 @@ function SellerItemsSection({
                 Ended by {endedInfo.endedBy || 'unknown'} &middot; {formatDateTime(endedInfo.endedAt)}
               </Typography>
             )}
+            {failReason && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.main', fontWeight: 700 }}>
+                End failed: {failReason} — use End Listing to retry
+              </Typography>
+            )}
             {revisedInfo && (
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#1d4ed8', fontWeight: 700 }}>
                 Revised by {revisedInfo.revisedBy || 'unknown'} &middot; {formatDateTime(revisedInfo.revisedAt)}
@@ -407,10 +423,13 @@ export default function AmazonStockCheckPage() {
   const [activeRun, setActiveRun] = useState(null);
   const [items, setItems] = useState([]);
   const [itemCounts, setItemCounts] = useState({});
-  const [pagination, setPagination] = useState({ page: 1, limit: 100, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 500, total: 0, totalPages: 1 });
   const [loadingEstimate, setLoadingEstimate] = useState(false);
   const [starting, setStarting] = useState(false);
   const [loadingRuns, setLoadingRuns] = useState(false);
+  // True only for user-initiated reloads (card/filter switch, page, seller) —
+  // the 5s background poll stays silent so the table doesn't flash a loader.
+  const [loadingItems, setLoadingItems] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [expandedRows, setExpandedRows] = useState(() => new Set());
@@ -437,6 +456,12 @@ export default function AmazonStockCheckPage() {
   const [selectedRows, setSelectedRows] = useState(() => new Map());
   const [bulkEnding, setBulkEnding] = useState(false);
   const [bulkEndReviewOpen, setBulkEndReviewOpen] = useState(false);
+  const [bulkEndProgressOpen, setBulkEndProgressOpen] = useState(false);
+  // { total, done, ok } while a bulk end runs; failures carry per-item reasons.
+  const [bulkEndProgress, setBulkEndProgress] = useState(null);
+  const [bulkEndFailures, setBulkEndFailures] = useState([]);
+  // Map<itemId, reason> — last end-listing failure per item, shown beside the row.
+  const [failedItems, setFailedItems] = useState({});
   const [verifyImages, setVerifyImages] = useState({});
   const imageRequestRef = useRef(null);
   const amazonWinRef = useRef(null);
@@ -473,8 +498,9 @@ export default function AmazonStockCheckPage() {
     }
   };
 
-  const fetchRun = async (runId) => {
+  const fetchRun = async (runId, { showLoading = false } = {}) => {
     if (!runId) return;
+    if (showLoading) setLoadingItems(true);
     try {
       const sellerId = sellerFilter?._id || undefined;
       const [{ data: runData }, { data: itemsData }] = await Promise.all([
@@ -494,6 +520,8 @@ export default function AmazonStockCheckPage() {
       setPagination((prev) => ({ ...prev, ...(itemsData.pagination || {}) }));
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to load run details');
+    } finally {
+      if (showLoading) setLoadingItems(false);
     }
   };
 
@@ -549,7 +577,7 @@ export default function AmazonStockCheckPage() {
 
   useEffect(() => {
     if (!activeRun?._id) return undefined;
-    fetchRun(activeRun._id);
+    fetchRun(activeRun._id, { showLoading: true });
     if (!['queued', 'running'].includes(activeRun.status)) return undefined;
     const timer = setInterval(() => fetchRun(activeRun._id), 5000);
     return () => clearInterval(timer);
@@ -659,10 +687,18 @@ export default function AmazonStockCheckPage() {
           endedBy: user?.username || user?.name || user?.email || 'you'
         }
       }));
+      setFailedItems((prev) => {
+        if (!prev[sellerItem.itemId]) return prev;
+        const next = { ...prev };
+        delete next[sellerItem.itemId];
+        return next;
+      });
       setSuccess(`Ended item ${sellerItem.itemId}`);
       if (activeRun?._id) await fetchRun(activeRun._id);
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Failed to end item');
+      const reason = err.response?.data?.error || err.message || 'Failed to end item';
+      setFailedItems((prev) => ({ ...prev, [sellerItem.itemId]: reason }));
+      setError(`Failed to end item ${sellerItem.itemId}: ${reason}`);
     } finally {
       setEndingItemId(null);
     }
@@ -981,6 +1017,9 @@ export default function AmazonStockCheckPage() {
     setSuccess('');
     setBulkEndReviewOpen(false);
     setBulkEnding(true);
+    setBulkEndProgress({ total: rows.length, done: 0, ok: 0 });
+    setBulkEndFailures([]);
+    setBulkEndProgressOpen(true);
     let okCount = 0;
     const failures = [];
     for (const row of rows) {
@@ -1002,17 +1041,33 @@ export default function AmazonStockCheckPage() {
             endedBy: user?.username || user?.name || user?.email || 'you'
           }
         }));
+        setFailedItems((prev) => {
+          if (!prev[row.itemId]) return prev;
+          const next = { ...prev };
+          delete next[row.itemId];
+          return next;
+        });
+        // Drop the ended row from the selection right away; failed rows stay
+        // selected so a retry only re-sends the ones that actually failed.
+        setSelectedRows((prev) => {
+          const next = new Map(prev);
+          next.delete(row.itemId);
+          return next;
+        });
       } catch (err) {
-        failures.push(row.itemId);
+        const reason = err.response?.data?.error || err.message || 'Unknown error';
+        failures.push({ itemId: row.itemId, sku: row.sku || '', sellerName: row.sellerName || '', reason });
+        setBulkEndFailures((prev) => [...prev, { itemId: row.itemId, sku: row.sku || '', sellerName: row.sellerName || '', reason }]);
+        setFailedItems((prev) => ({ ...prev, [row.itemId]: reason }));
       }
+      setBulkEndProgress((prev) => (prev ? { ...prev, done: prev.done + 1, ok: okCount } : prev));
     }
     setEndingItemId(null);
     setBulkEnding(false);
-    setSelectedRows(new Map());
     if (failures.length) {
-      setError(`Ended ${okCount} listing(s); failed for: ${failures.join(', ')}`);
+      setError(`Ended ${okCount} of ${rows.length} listing(s); ${failures.length} failed — see the progress dialog for reasons.`);
     } else {
-      setSuccess(`Ended ${okCount} listing(s).`);
+      setSuccess(`Ended all ${okCount} listing(s).`);
     }
     if (activeRun?._id) await fetchRun(activeRun._id);
   };
@@ -1240,13 +1295,14 @@ export default function AmazonStockCheckPage() {
           sx={{ cursor: 'pointer' }}
           onClick={() => setRecentRunsOpen((prev) => !prev)}
         >
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Recent Runs</Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Typography variant="h6" sx={{ fontWeight: 900 }}>Recent Runs</Typography>
             {activeRun && (
               <Chip
-                size="small"
+                color="primary"
+                variant="outlined"
                 label={`Active: ${getRunScope(activeRun)} · ${formatDateTime(activeRun.createdAt)}`}
-                sx={{ fontWeight: 700 }}
+                sx={{ fontWeight: 800, fontSize: '0.95rem', height: 34, borderWidth: 2 }}
               />
             )}
           </Stack>
@@ -1349,7 +1405,33 @@ export default function AmazonStockCheckPage() {
         ))}
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+      <Box sx={{ position: 'relative' }}>
+        {loadingItems && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(255, 255, 255, 0.6)',
+              borderRadius: 2
+            }}
+          >
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ bgcolor: '#fff', px: 2, py: 1, borderRadius: 2, boxShadow: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.secondary' }}>
+                Loading items…
+              </Typography>
+            </Stack>
+          </Box>
+        )}
+        <TableContainer
+          component={Paper}
+          variant="outlined"
+          sx={{ borderRadius: 2, opacity: loadingItems ? 0.55 : 1, transition: 'opacity 0.15s', pointerEvents: loadingItems ? 'none' : 'auto' }}
+        >
             <Table
               size="small"
               sx={{
@@ -1586,7 +1668,9 @@ export default function AmazonStockCheckPage() {
                 {!displayItems.length && (
                   <TableRow>
                     <TableCell colSpan={9} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-                      {activeRun ? 'No rows match the selected card/filter yet.' : 'Start a run to see results.'}
+                      {loadingItems
+                        ? 'Loading items…'
+                        : (activeRun ? 'No rows match the selected card/filter yet.' : 'Start a run to see results.')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1600,7 +1684,7 @@ export default function AmazonStockCheckPage() {
                 setPagination((prev) => ({ ...prev, page: nextPage + 1 }));
                 setExpandedRows(new Set());
               }}
-              rowsPerPage={pagination.limit || 100}
+              rowsPerPage={pagination.limit || 500}
               onRowsPerPageChange={(event) => {
                 setPagination((prev) => ({
                   ...prev,
@@ -1612,6 +1696,7 @@ export default function AmazonStockCheckPage() {
               rowsPerPageOptions={[25, 50, 100, 250, 500]}
             />
           </TableContainer>
+      </Box>
 
       <Dialog open={!!reviseTarget} onClose={() => setReviseTarget(null)} fullWidth maxWidth="sm">
         <DialogTitle>Revise Listing</DialogTitle>
@@ -1829,11 +1914,15 @@ export default function AmazonStockCheckPage() {
                 images={verifyImages}
                 endedItems={endedItems}
                 endingItemId={endingItemId}
-                onEndItem={handleEndItem}
+                // Verify rows don't carry a country field (it lives at the top
+                // level of the verify response) — patch it on so the end-item
+                // log stores the country instead of "unknown".
+                onEndItem={(row) => handleEndItem({ ...row, country: verifyData?.country || '' })}
                 revisedItems={revisedItems}
                 onReviseItem={(row) => openReviseDialog({ sku: verifyData.sku, asin: verifyData.asin }, row)}
                 selectedIds={selectedRows}
                 onToggleSelect={toggleSelect}
+                failedItems={failedItems}
               />
             </Stack>
           )}
@@ -1882,6 +1971,91 @@ export default function AmazonStockCheckPage() {
             startIcon={bulkEnding ? <CircularProgress size={16} color="inherit" /> : <CancelIcon />}
           >
             End {formatNumber(selectedRows.size)} listing(s)
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Live progress while a bulk end runs; stays open afterwards so the
+          per-item failure reasons can be reviewed (failed rows stay selected
+          for a retry via "End Selected"). */}
+      <Dialog
+        open={bulkEndProgressOpen}
+        onClose={() => { if (!bulkEnding) setBulkEndProgressOpen(false); }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {bulkEnding ? 'Ending listings…' : 'End listings — result'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ maxHeight: 460 }}>
+          {bulkEndProgress && (
+            <>
+              <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
+                <LinearProgress
+                  variant="determinate"
+                  value={bulkEndProgress.total > 0 ? (bulkEndProgress.done / bulkEndProgress.total) * 100 : 0}
+                  sx={{ flex: 1, height: 8, borderRadius: 4 }}
+                  color={bulkEndFailures.length ? 'warning' : 'primary'}
+                />
+                <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  {formatNumber(bulkEndProgress.done)} / {formatNumber(bulkEndProgress.total)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+                <Chip size="small" color="success" label={`${formatNumber(bulkEndProgress.ok)} ended`} sx={{ fontWeight: 800 }} />
+                <Chip
+                  size="small"
+                  color={bulkEndFailures.length ? 'error' : 'default'}
+                  variant={bulkEndFailures.length ? 'filled' : 'outlined'}
+                  label={`${formatNumber(bulkEndFailures.length)} failed`}
+                  sx={{ fontWeight: 800 }}
+                />
+                {bulkEnding && endingItemId && (
+                  <Chip size="small" variant="outlined" label={`Ending ${endingItemId}…`} sx={{ fontWeight: 800, fontFamily: 'monospace' }} />
+                )}
+              </Stack>
+            </>
+          )}
+          {bulkEndFailures.length > 0 ? (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
+                Failed items
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Item ID</TableCell>
+                    <TableCell>SKU</TableCell>
+                    <TableCell>Reason</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {bulkEndFailures.map((f) => (
+                    <TableRow key={f.itemId}>
+                      <TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{f.itemId}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace' }}>{f.sku || '-'}</TableCell>
+                      <TableCell sx={{ color: 'error.main' }}>{f.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {!bulkEnding && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  Failed items are still selected — fix the issue and use “End Selected” to retry just these.
+                </Typography>
+              )}
+            </>
+          ) : (
+            !bulkEnding && bulkEndProgress && (
+              <Typography variant="body2" color="text.secondary">
+                All {formatNumber(bulkEndProgress.ok)} listing(s) ended successfully.
+              </Typography>
+            )
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkEndProgressOpen(false)} disabled={bulkEnding}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>
