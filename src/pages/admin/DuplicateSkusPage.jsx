@@ -388,6 +388,16 @@ export default function DuplicateSkusPage() {
         return map;
     }, [result]);
 
+    // itemId → SKU, so ended listings are logged with their SKU (enables SKU
+    // lookup on the End-Listing Lookup page).
+    const skuByItemId = useMemo(() => {
+        const map = {};
+        for (const dup of result?.duplicates ?? []) {
+            dup.itemIds.forEach(id => { map[id] = dup.sku; });
+        }
+        return map;
+    }, [result]);
+
     useEffect(() => {
         api.get('/sellers/all')
             .then(({ data }) => setSellers(data))
@@ -503,6 +513,7 @@ export default function DuplicateSkusPage() {
                     endingReason: 'NotAvailable',
                     source: 'duplicate_sku',
                     country: countryByItemId[ids[i]] || null,
+                    sku: skuByItemId[ids[i]] || null,
                 });
             } catch (e) {
                 errors.push({ itemId: ids[i], msg: e?.response?.data?.error || e.message });
