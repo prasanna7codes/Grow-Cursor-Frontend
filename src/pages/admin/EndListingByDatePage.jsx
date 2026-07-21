@@ -45,9 +45,16 @@ import {
 
 const T = dashboardSignatureTokens;
 
-// Matches the country names Amazon Stock Check runs are tagged with
-// (server COUNTRY_CONFIG), which is what EndListingLog.country stores.
-const COUNTRY_OPTIONS = ['United States', 'Australia', 'Canada', 'United Kingdom'];
+// EndListingLog.country is now canonicalized at write time to US / UK / AU /
+// Canada (see normalizeEndListingCountry in the /ebay/end-item handler), so the
+// filter uses those codes. Run the country backfill to migrate legacy full-name
+// rows ("United States", etc.) to these codes.
+const COUNTRY_OPTIONS = [
+  { value: 'US', label: 'US' },
+  { value: 'AU', label: 'AU' },
+  { value: 'Canada', label: 'CA' },
+  { value: 'UK', label: 'UK' },
+];
 
 // All dates on this page are computed and displayed in Pacific time (covers
 // PST/PDT automatically), same convention used across the Fulfillment
@@ -206,8 +213,8 @@ export default function EndListingByDatePage() {
               <InputLabel>Country</InputLabel>
               <Select label="Country" value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
                 <MenuItem value="all">All Countries</MenuItem>
-                {COUNTRY_OPTIONS.map((country) => (
-                  <MenuItem key={country} value={country}>{country}</MenuItem>
+                {COUNTRY_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
                 ))}
               </Select>
             </FormControl>
