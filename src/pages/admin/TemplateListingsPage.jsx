@@ -6,7 +6,7 @@ import {
   TableHead, TableRow, Typography, IconButton, Dialog, DialogTitle, 
   DialogContent, DialogActions, Alert, Pagination, TextField, Tabs, Tab, MenuItem,
   Chip, CircularProgress, Switch, FormControlLabel, LinearProgress, FormControl, Divider,
-  InputLabel, Select, Breadcrumbs, Link, Checkbox, OutlinedInput, Tooltip
+  InputLabel, Select, Breadcrumbs, Link, Checkbox, OutlinedInput, Tooltip, FormHelperText
 } from '@mui/material';
 import { 
   Delete as DeleteIcon, 
@@ -102,6 +102,9 @@ export default function TemplateListingsPage() {
   const [asinError, setAsinError] = useState('');
   const [asinSuccess, setAsinSuccess] = useState('');
   const [autoFilledFields, setAutoFilledFields] = useState(new Set());
+  // Overlay badge applied to the primary image of every ASIN in this batch.
+  // Empty string means no overlay. Options come from the template.
+  const [overlayBadgeId, setOverlayBadgeId] = useState('');
 
   // Bulk mode state
   const [bulkMode, setBulkMode] = useState(true);
@@ -745,7 +748,11 @@ export default function TemplateListingsPage() {
       const { data } = await api.post('/template-listings/autofill-from-asin', {
         asin: asinInput.trim(),
         templateId,
-        region
+        // Needed for the overlay: the composited image is hosted on the
+        // seller's eBay account.
+        sellerId,
+        region,
+        overlayBadgeId
       });
 
       const { coreFields, customFields } = data.autoFilledData;
@@ -783,7 +790,15 @@ export default function TemplateListingsPage() {
       } else if (data.pricingCalculation?.error) {
         console.error('Pricing calculation error:', data.pricingCalculation.error);
       }
-      
+
+      // Say so either way — an overlay that silently doesn't apply is the one
+      // failure you can't see from this form, since there's no image preview.
+      if (overlayBadgeId) {
+        successMsg += data.overlayApplied
+          ? `\n🏷️ Overlay applied to the main image`
+          : `\n⚠️ Overlay was NOT applied — the main image is the original Amazon photo`;
+      }
+
       setAsinSuccess(successMsg);
     } catch (err) {
       setAsinError(err.response?.data?.error || 'Failed to auto-fill from ASIN');
@@ -868,7 +883,8 @@ export default function TemplateListingsPage() {
       const asinParam = asins.join(',');
       const authToken = getAuthToken();
       const cacheParam = preferCachedAmazonData ? '&preferCachedAmazonData=true' : '';
-      const sseUrl = `/template-listings/bulk-preview-stream?templateId=${templateId}&sellerId=${sellerId}&asins=${encodeURIComponent(asinParam)}&region=${encodeURIComponent(effectiveRegion)}&token=${encodeURIComponent(authToken)}${cacheParam}`;
+      const overlayParam = overlayBadgeId ? `&overlayBadgeId=${encodeURIComponent(overlayBadgeId)}` : '';
+      const sseUrl = `/template-listings/bulk-preview-stream?templateId=${templateId}&sellerId=${sellerId}&asins=${encodeURIComponent(asinParam)}&region=${encodeURIComponent(effectiveRegion)}&token=${encodeURIComponent(authToken)}${cacheParam}${overlayParam}`;
       
       if (window._currentEventSource) {
         window._currentEventSource.close();
@@ -2032,7 +2048,31 @@ export default function TemplateListingsPage() {
                     ))}
                   </Select>
                 </FormControl>
-                
+
+                {/* Only rendered when the template has badges configured, so
+                    templates that don't use overlays are unchanged. */}
+                {template?.overlayOptions?.length > 0 && (
+                  <FormControl size="small" sx={{ maxWidth: 280 }}>
+                    <InputLabel>Image overlay</InputLabel>
+                    <Select
+                      value={overlayBadgeId}
+                      label="Image overlay"
+                      onChange={(e) => setOverlayBadgeId(e.target.value)}
+                      disabled={loadingAsin || loadingBulk}
+                    >
+                      <MenuItem value="">None</MenuItem>
+                      {template.overlayOptions.map((opt) => (
+                        <MenuItem key={opt.badgeKey} value={opt.badgeKey}>
+                          {opt.label || opt.badgeKey}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>
+                      Applied to the main image only — check it matches every ASIN in this batch
+                    </FormHelperText>
+                  </FormControl>
+                )}
+
                 <Stack direction="row" spacing={2}>
                   {!bulkMode ? (
                     <Button
