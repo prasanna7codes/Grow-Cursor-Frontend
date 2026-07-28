@@ -53,6 +53,11 @@ function extractMarketplace(customActionField) {
 }
 const MARKETPLACE_TO_COUNTRY = { Australia: 'AU', US: 'US', UK: 'UK', Canada: 'Canada', Motors: 'US' };
 
+// Tells the server this batch wants no overlay at all, which is different from
+// not saying anything — that inherits the template's default badge. Must match
+// NO_OVERLAY in the backend's utils/overlayImage.js.
+const NO_OVERLAY = 'none';
+
 export default function TemplateListingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -64,6 +69,9 @@ export default function TemplateListingsPage() {
   const fromAsinList = searchParams.get('fromAsinList') === 'true';
 
   const [template, setTemplate] = useState(null);
+  // The badge the server falls back to when the batch names none. Drives both
+  // the picker's wording and whether "no overlay" needs to be sent explicitly.
+  const defaultOverlayOption = template?.overlayOptions?.find(o => o.isDefault) || null;
   const [listings, setListings] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, pages: 0 });
   const [loading, setLoading] = useState(false);
@@ -103,8 +111,15 @@ export default function TemplateListingsPage() {
   const [asinSuccess, setAsinSuccess] = useState('');
   const [autoFilledFields, setAutoFilledFields] = useState(new Set());
   // Overlay badge applied to the primary image of every ASIN in this batch.
-  // Empty string means no overlay. Options come from the template.
+  // Empty string means "no preference", which the server reads as the
+  // template's default badge — NOT as "no overlay". Opting out is NO_OVERLAY.
+  // Options come from the template.
   const [overlayBadgeId, setOverlayBadgeId] = useState('');
+  // Whether this batch will end up badged, which is what the confirmation
+  // message should reflect — not merely whether a badge was picked by hand.
+  const overlayExpected = overlayBadgeId
+    ? overlayBadgeId !== NO_OVERLAY
+    : Boolean(defaultOverlayOption);
 
   // Bulk mode state
   const [bulkMode, setBulkMode] = useState(true);
@@ -476,6 +491,10 @@ export default function TemplateListingsPage() {
         : `/listing-templates/${templateId}`;
       const { data } = await api.get(endpoint);
       setTemplate(data);
+      // A badge chosen for the previous template means nothing under this one,
+      // and would leave the picker showing a value it no longer offers. Back to
+      // "no preference", which resolves to whatever this template defaults to.
+      setOverlayBadgeId('');
     } catch (err) {
       setError('Failed to fetch template');
       console.error(err);
@@ -793,7 +812,10 @@ export default function TemplateListingsPage() {
 
       // Say so either way — an overlay that silently doesn't apply is the one
       // failure you can't see from this form, since there's no image preview.
-      if (overlayBadgeId) {
+      // Keyed off whether a badge was *expected*, not whether one was picked:
+      // a template default applies with the picker left untouched, and that is
+      // the case most likely to go unnoticed.
+      if (overlayExpected) {
         successMsg += data.overlayApplied
           ? `\n🏷️ Overlay applied to the main image`
           : `\n⚠️ Overlay was NOT applied — the main image is the original Amazon photo`;
@@ -2060,15 +2082,29 @@ export default function TemplateListingsPage() {
                       onChange={(e) => setOverlayBadgeId(e.target.value)}
                       disabled={loadingAsin || loadingBulk}
                     >
-                      <MenuItem value="">None</MenuItem>
+                      {/* Empty means "no preference", which the server resolves
+                          to the template default. Labelled as such so it can't
+                          read as "no overlay" while quietly badging the batch. */}
+                      <MenuItem value="">
+                        {defaultOverlayOption
+                          ? `Template default — ${defaultOverlayOption.label || defaultOverlayOption.badgeKey}`
+                          : 'None'}
+                      </MenuItem>
                       {template.overlayOptions.map((opt) => (
                         <MenuItem key={opt.badgeKey} value={opt.badgeKey}>
                           {opt.label || opt.badgeKey}
                         </MenuItem>
                       ))}
+                      {/* Only meaningful when there is a default to override.
+                          Without one, the empty option already means no badge. */}
+                      {defaultOverlayOption && (
+                        <MenuItem value={NO_OVERLAY}>None — no overlay on this batch</MenuItem>
+                      )}
                     </Select>
                     <FormHelperText>
-                      Applied to the main image only — check it matches every ASIN in this batch
+                      {overlayExpected
+                        ? 'Applied to the main image — check it matches every ASIN in this batch'
+                        : 'No overlay will be applied to this batch'}
                     </FormHelperText>
                   </FormControl>
                 )}

@@ -80,7 +80,9 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
         The badge is composited onto the <strong>main image only</strong>, but every
         image is then hosted by eBay — a listing cannot mix eBay-hosted and external
         pictures. Mark one badge as the default and it applies to every ASIN added
-        under this template, on every page. Leave none marked to turn overlays off.
+        under this template, on every page — a lister can still choose a different
+        badge, or none at all, for an individual batch. Leave none marked to turn
+        overlays off everywhere.
       </Alert>
 
       {loadError && <Alert severity="warning">{loadError}</Alert>}
