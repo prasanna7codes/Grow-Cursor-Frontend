@@ -51,11 +51,21 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
           scale: DEFAULT_SCALE,
           anchor: DEFAULT_ANCHOR,
           margin: DEFAULT_MARGIN,
+          // First badge enabled becomes the default, since a template that
+          // offers exactly one badge and applies none is never what was meant.
+          isDefault: options.length === 0,
         },
       ]);
     } else {
       onChange(options.filter(o => o.badgeKey !== badge.key));
     }
+  };
+
+  // Exactly one default, enforced here and again server-side. Behaves like a
+  // radio: choosing one clears the rest, and unchecking leaves the template
+  // with no automatic overlay at all.
+  const setDefault = (badgeKey, isDefault) => {
+    onChange(options.map(o => ({ ...o, isDefault: isDefault && o.badgeKey === badgeKey })));
   };
 
   const updateOption = (badgeKey, patch) => {
@@ -67,9 +77,12 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
       <Typography variant="subtitle2">Image Overlays</Typography>
 
       <Alert severity="info">
-        An overlay is composited onto the <strong>main image only</strong>, and the
-        result is hosted by eBay. The person adding ASINs picks which badge to use
-        for each batch, so make sure it matches the products in that batch.
+        The badge is composited onto the <strong>main image only</strong>, but every
+        image is then hosted by eBay — a listing cannot mix eBay-hosted and external
+        pictures. Mark one badge as the default and it applies to every ASIN added
+        under this template, on every page — a lister can still choose a different
+        badge, or none at all, for an individual batch. Leave none marked to turn
+        overlays off everywhere.
       </Alert>
 
       {loadError && <Alert severity="warning">{loadError}</Alert>}
@@ -97,6 +110,16 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
 
             {option && (
               <Box sx={{ pl: 4, pt: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={Boolean(option.isDefault)}
+                      onChange={(e) => setDefault(badge.key, e.target.checked)}
+                    />
+                  }
+                  label="Apply automatically to every batch"
+                />
+
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                   <TextField
                     label="Size (% of longest edge)"
