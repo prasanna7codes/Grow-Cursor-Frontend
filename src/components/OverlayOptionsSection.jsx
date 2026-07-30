@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Box, Checkbox, FormControl, FormControlLabel, InputLabel,
+  Alert, Box, Button, Checkbox, FormControl, FormControlLabel, InputLabel,
   MenuItem, Paper, Select, Stack, TextField, Typography
 } from '@mui/material';
 import api from '../lib/api.js';
@@ -40,6 +40,23 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
   }, []);
 
   const findOption = (badgeKey) => options.find(o => o.badgeKey === badgeKey);
+
+  // Saved options whose badge is no longer registered — typically artwork that
+  // was renamed or de-registered after the template was saved. The rows below
+  // are driven by the registry, so without this these would be invisible while
+  // still riding along in the payload, and the server rejects the whole array:
+  // the template becomes unsavable with an error naming a badge the user can't
+  // see. Surface them so they can be removed. Only meaningful once the registry
+  // has actually loaded — mid-fetch (or on load failure) everything would
+  // otherwise look orphaned.
+  const knownKeys = new Set(badges.map(b => b.key));
+  const orphanedOptions = badges.length > 0
+    ? options.filter(o => !knownKeys.has(o?.badgeKey))
+    : [];
+
+  const removeOrphan = (badgeKey) => {
+    onChange(options.filter(o => o?.badgeKey !== badgeKey));
+  };
 
   const toggleBadge = (badge, enabled) => {
     if (enabled) {
@@ -86,6 +103,34 @@ export default function OverlayOptionsSection({ options = [], onChange }) {
       </Alert>
 
       {loadError && <Alert severity="warning">{loadError}</Alert>}
+
+      {orphanedOptions.length > 0 && (
+        <Alert severity="warning">
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            This template has {orphanedOptions.length === 1 ? 'an overlay badge that is' : 'overlay badges that are'} no
+            longer registered. {orphanedOptions.length === 1 ? 'It' : 'They'} cannot be applied, and the template
+            will not save until removed.
+          </Typography>
+          <Stack spacing={1}>
+            {orphanedOptions.map((option) => (
+              <Stack
+                key={option.badgeKey}
+                direction="row"
+                spacing={2}
+                alignItems="center"
+                justifyContent="space-between"
+              >
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  {option.badgeKey}
+                </Typography>
+                <Button size="small" color="warning" onClick={() => removeOrphan(option.badgeKey)}>
+                  Remove
+                </Button>
+              </Stack>
+            ))}
+          </Stack>
+        </Alert>
+      )}
 
       {badges.length === 0 && !loadError && (
         <Typography variant="body2" color="text.secondary">
