@@ -116,6 +116,8 @@ const ExpiringListingsPage = lazy(() => import('../pages/admin/ExpiringListingsP
 const SkuIndexSyncPage = lazy(() => import('../pages/admin/SkuIndexSyncPage.jsx'));
 const DuplicateSkusPage = lazy(() => import('../pages/admin/DuplicateSkusPage.jsx'));
 const SkuIndexDashboardPage = lazy(() => import('../pages/admin/SkuIndexDashboardPage.jsx'));
+const UnsoldSyncPage = lazy(() => import('../pages/admin/UnsoldSyncPage.jsx'));
+const UnsoldListingsPage = lazy(() => import('../pages/admin/UnsoldListingsPage.jsx'));
 const AmazonStockCheckPage = lazy(() => import('../pages/admin/AmazonStockCheckPage.jsx'));
 const SellerSkuStockCheckPage = lazy(() => import('../pages/admin/SellerSkuStockCheckPage.jsx'));
 const SkuSellerProfitPage = lazy(() => import('../pages/admin/SkuSellerProfitPage.jsx'));
@@ -345,6 +347,8 @@ const COMPONENT_MAP = {
   'SkuIndexSync': SkuIndexSyncPage,
   'DuplicateSkus': DuplicateSkusPage,
   'SkuIndexDashboard': SkuIndexDashboardPage,
+  'UnsoldSync': UnsoldSyncPage,
+  'UnsoldListings': UnsoldListingsPage,
   'AmazonStockCheck': AmazonStockCheckPage,
   'SellerSkuStockCheck': SellerSkuStockCheckPage,
   'SkuSellerOrderProfit': SkuSellerProfitPage,
