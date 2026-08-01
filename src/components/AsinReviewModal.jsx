@@ -947,6 +947,22 @@ export default function AsinReviewModal({
           </Box>
           
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            {currentItem && (
+              <Tooltip title="Rephrase title">
+                <span>
+                  <IconButton
+                    onClick={handleRephrase}
+                    disabled={!itemData.title || !!rephrasing[currentItem.id]}
+                    size="small"
+                  >
+                    {rephrasing[currentItem.id]
+                      ? <CircularProgress size={18} />
+                      : <AutorenewIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
+
             <Button
               variant={showAmazonPreview ? "contained" : "outlined"}
               onClick={toggleAmazonPreview}
@@ -1812,44 +1828,27 @@ export default function AsinReviewModal({
                     );
                   }
 
-                  // Title field — with rephrase button
+                  // Title field — rephrase button lives in the header toolbar
                   if (col.name === 'title') {
                     return (
                       <Box key="title">
-                        <Stack direction="row" alignItems="flex-start" spacing={1}>
-                          <TextField
-                            label={col.label || col.name}
-                            value={itemData.title || ''}
-                            onChange={(e) => handleFieldChange('title', e.target.value, false)}
-                            size="small"
-                            fullWidth
-                            required
-                            helperText={
-                              crossSellerSummary.records.length > 0
-                                ? `${(itemData.title || '').length}/80 • ${
-                                    crossSellerSummary.hasTitleMatch
-                                      ? `Title matches ${crossSellerSummary.titleMatches.length} synced same-SKU listing${crossSellerSummary.titleMatches.length === 1 ? '' : 's'}`
-                                      : 'Title does not match synced listings with this SKU'
-                                  }`
-                                : `${(itemData.title || '').length}/80`
-                            }
-                            sx={{ flex: 1 }}
-                          />
-                          <Tooltip title="Rephrase title">
-                            <span>
-                              <IconButton
-                                onClick={handleRephrase}
-                                disabled={!itemData.title || !!rephrasing[currentItem.id]}
-                                size="small"
-                                sx={{ mt: 0.5 }}
-                              >
-                                {rephrasing[currentItem.id]
-                                  ? <CircularProgress size={18} />
-                                  : <AutorenewIcon fontSize="small" />}
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        </Stack>
+                        <TextField
+                          label={col.label || col.name}
+                          value={itemData.title || ''}
+                          onChange={(e) => handleFieldChange('title', e.target.value, false)}
+                          size="small"
+                          fullWidth
+                          required
+                          helperText={
+                            crossSellerSummary.records.length > 0
+                              ? `${(itemData.title || '').length}/80 • ${
+                                  crossSellerSummary.hasTitleMatch
+                                    ? `Title matches ${crossSellerSummary.titleMatches.length} synced same-SKU listing${crossSellerSummary.titleMatches.length === 1 ? '' : 's'}`
+                                    : 'Title does not match synced listings with this SKU'
+                                }`
+                              : `${(itemData.title || '').length}/80`
+                          }
+                        />
                         {isSteeringWheelCover && (
                           <TextField
                             label="Vehicle models (from reviews)"
