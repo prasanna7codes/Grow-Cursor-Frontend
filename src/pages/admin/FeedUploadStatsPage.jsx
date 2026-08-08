@@ -41,6 +41,9 @@ const HIGH_QUOTA_SELLERS = [
   'techvista',
   'ultimate',
   'valueventure',
+  'elevate',
+  'mind_matrix',
+  'actus_corp',
 ];
 
 // Country-based quotas
