@@ -173,6 +173,9 @@ export default function FeedUploadStatsPage() {
   const [monthStats, setMonthStats] = useState([]);
   const [monthLoading, setMonthLoading] = useState(true);
   const [monthError, setMonthError] = useState(null);
+  // Net = success − ended. Ended listings aren't category/range scoped, so when a
+  // category or range filter is active the Ended/Net columns show "—" instead.
+  const [monthNetApplicable, setMonthNetApplicable] = useState(true);
 
   // ── Category / Range chart ─────────────────────────────────────────
   const [categoryStats, setCategoryStats] = useState({ categories: [], ranges: [] });
@@ -222,7 +225,27 @@ export default function FeedUploadStatsPage() {
         if (filterRange) p.rangeId = filterRange._id;
         params = { startDate: first, endDate: last, ...p };
       }
-      const { data } = await api.get('/ebay/feed/upload-stats', { params });
+      // Ended listings can't be scoped to a category/range — only show Net when neither is set.
+      const netApplicable = !params.categoryId && !params.rangeId;
+      setMonthNetApplicable(netApplicable);
+
+      // Ended stats only care about date range, seller, and marketplace.
+      const endedParams = { startDate: params.startDate, endDate: params.endDate };
+      if (params.country) endedParams.country = params.country;
+      if (params.sellerId) endedParams.sellerId = params.sellerId;
+
+      const [{ data }, endedRes] = await Promise.all([
+        api.get('/ebay/feed/upload-stats', { params }),
+        netApplicable
+          ? api.get('/ebay/feed/ended-stats', { params: endedParams }).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const endedMap = {};
+      (endedRes.data || []).forEach((r) => {
+        endedMap[r.sellerName] = (endedMap[r.sellerName] || 0) + (r.endedListings || 0);
+      });
+
       const map = {};
       data.forEach((r) => {
         const key = r.sellerName;
@@ -230,7 +253,11 @@ export default function FeedUploadStatsPage() {
           map[key] = { sellerId: r.sellerId, sellerName: r.sellerName, totalSuccess: 0 };
         map[key].totalSuccess += r.totalSuccess || 0;
       });
-      setMonthStats(Object.values(map).sort((a, b) => b.totalSuccess - a.totalSuccess));
+      const merged = Object.values(map).map((r) => {
+        const totalEnded = endedMap[r.sellerName] || 0;
+        return { ...r, totalEnded, netListings: r.totalSuccess - totalEnded };
+      });
+      setMonthStats(merged.sort((a, b) => b.totalSuccess - a.totalSuccess));
     } catch (err) {
       setMonthError(err.response?.data?.error || 'Failed to fetch data');
     } finally {
@@ -300,6 +327,8 @@ export default function FeedUploadStatsPage() {
 
   const dayTotal = dayStats.reduce((s, r) => s + (r.totalSuccess || 0), 0);
   const monthTotal = monthStats.reduce((s, r) => s + (r.totalSuccess || 0), 0);
+  const monthEndedTotal = monthStats.reduce((s, r) => s + (r.totalEnded || 0), 0);
+  const monthNetTotal = monthStats.reduce((s, r) => s + (r.netListings || 0), 0);
   const drillRanges = drillCategory
     ? (categoryStats.ranges || []).filter((r) => r.categoryName === drillCategory.name)
     : [];
@@ -747,13 +776,15 @@ export default function FeedUploadStatsPage() {
                   <TableRow>
                     <TableCell sx={{ ...tableHeaderCellSx, width: 52, pl: 3 }}>#</TableCell>
                     <TableCell sx={{ ...tableHeaderCellSx }}>Seller</TableCell>
-                    <TableCell sx={{ ...tableHeaderCellSx, pr: 3 }} align="right">Successful Listings</TableCell>
+                    <TableCell sx={{ ...tableHeaderCellSx }} align="right">Successful Listings</TableCell>
+                    <TableCell sx={{ ...tableHeaderCellSx }} align="right">Ended</TableCell>
+                    <TableCell sx={{ ...tableHeaderCellSx, pr: 3 }} align="right">Net (Success − Ended)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {monthStats.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} align="center" sx={{ py: 6, color: 'text.secondary', fontSize: '0.9rem' }}>
+                      <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary', fontSize: '0.9rem' }}>
                         No data for this month
                       </TableCell>
                     </TableRow>
@@ -761,6 +792,7 @@ export default function FeedUploadStatsPage() {
                     <>
                       {monthStats.map((row, idx) => {
                         const quota = getQuota(row.sellerName, monthCountry === 'ALL' ? 'US' : monthCountry);
+                        const net = row.netListings ?? 0;
                         return (
                           <TableRow
                             key={`m-${row.sellerId}-${idx}`}
@@ -769,7 +801,7 @@ export default function FeedUploadStatsPage() {
                           >
                             <TableCell sx={{ ...cellSx, color: 'text.disabled', width: 52, pl: 3 }}>{idx + 1}</TableCell>
                             <TableCell sx={{ ...cellSx, fontWeight: 500, color: BRAND_DARK }}>{row.sellerName}</TableCell>
-                            <TableCell align="right" sx={{ ...numCellSx, pr: 3, fontWeight: 700, color: BRAND_DARK }}>
+                            <TableCell align="right" sx={{ ...numCellSx, fontWeight: 700, color: BRAND_DARK }}>
                               {row.totalSuccess.toLocaleString()}
                               {quota && (
                                 <Typography component="span" sx={{ fontSize: '0.78rem', color: alpha(BRAND_DARK, 0.5), ml: 0.5, fontWeight: 500 }}>
@@ -777,13 +809,29 @@ export default function FeedUploadStatsPage() {
                                 </Typography>
                               )}
                             </TableCell>
+                            <TableCell align="right" sx={{ ...numCellSx, color: alpha(BRAND_DARK, 0.7) }}>
+                              {monthNetApplicable
+                                ? (row.totalEnded || 0).toLocaleString()
+                                : <Typography component="span" sx={{ color: alpha(BRAND_DARK, 0.35), fontSize: '0.85rem' }}>—</Typography>}
+                            </TableCell>
+                            <TableCell align="right" sx={{ ...numCellSx, pr: 3, fontWeight: 700, color: net < 0 ? '#d32f2f' : BRAND_DARK }}>
+                              {monthNetApplicable
+                                ? net.toLocaleString()
+                                : <Typography component="span" sx={{ color: alpha(BRAND_DARK, 0.35), fontSize: '0.85rem' }}>—</Typography>}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
                       <TableRow sx={{ backgroundColor: alpha(BRAND_YELLOW, 0.15) }}>
                         <TableCell colSpan={2} sx={{ fontWeight: 800, color: BRAND_DARK, fontSize: '0.9rem', pl: 3, py: 1.6, borderBottom: 'none' }}>Total</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: BRAND_DARK, fontSize: '0.9rem', pr: 3, py: 1.6, borderBottom: 'none' }}>
+                        <TableCell align="right" sx={{ fontWeight: 800, color: BRAND_DARK, fontSize: '0.9rem', py: 1.6, borderBottom: 'none' }}>
                           {monthTotal.toLocaleString()}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800, color: BRAND_DARK, fontSize: '0.9rem', py: 1.6, borderBottom: 'none' }}>
+                          {monthNetApplicable ? monthEndedTotal.toLocaleString() : '—'}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800, color: monthNetApplicable && monthNetTotal < 0 ? '#d32f2f' : BRAND_DARK, fontSize: '0.9rem', pr: 3, py: 1.6, borderBottom: 'none' }}>
+                          {monthNetApplicable ? monthNetTotal.toLocaleString() : '—'}
                         </TableCell>
                       </TableRow>
                     </>
