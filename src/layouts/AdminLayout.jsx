@@ -78,6 +78,7 @@ const BuyerChatPage = lazy(() => import('../pages/admin/BuyerChatPage.jsx'));
 const FeedUploadPage = lazy(() => import('../pages/ebay/FeedUploadPage.jsx'));
 const BestOffersPage = lazy(() => import('../pages/admin/BestOffersPage.jsx'));
 const DiscountsPage = lazy(() => import('../pages/admin/DiscountsPage.jsx'));
+const QuantityUpdateExclusionsPage = lazy(() => import('../pages/admin/QuantityUpdateExclusionsPage.jsx'));
 const SellingPrivilegesPage = lazy(() => import('../pages/admin/SellingPrivilegesPage.jsx'));
 const EbayApiUsagePage = lazy(() => import('../pages/admin/EbayApiUsagePage.jsx'));
 const FeedUploadStatsPage = lazy(() => import('../pages/admin/FeedUploadStatsPage.jsx'));
@@ -353,6 +354,7 @@ const COMPONENT_MAP = {
   'EndListingLookup': EndListingLookupPage,
   'BestOffers': BestOffersPage,
   'Discounts': DiscountsPage,
+  'QuantityUpdateExclusions': QuantityUpdateExclusionsPage,
   'IdeasAndIssues': IdeasPage,
   'TeamChat': InternalMessagesPage,
   'LeaveAdmin': LeaveAdminPage,
