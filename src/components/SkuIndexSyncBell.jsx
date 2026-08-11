@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -124,9 +124,9 @@ const sellerCaption = (s) => {
  *
  * Reads the run document the cron job writes as it works
  * (GET /ebay/sync-sku-index/run-status) — one Mongo read, never an eBay call.
- * Like DiscountAlertsBell it reads once on mount and then stays put: working
- * in the app, navigating, or opening this popover never re-fetches. Only the
- * "Refresh now" button pulls fresh progress.
+ * Fetches once on mount (so the badge is right without opening anything) and
+ * again each time the popover is opened, so what you see is current. There is
+ * no background polling: working in the app or switching pages never re-fetches.
  *
  * Strictly read-only — no stop, dismiss, or link into the sync page, so a run
  * can never be interrupted from here.
@@ -138,7 +138,13 @@ export default function SkuIndexSyncBell() {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
 
+  // Guards against overlapping requests when the bell is opened and closed
+  // in quick succession
+  const loadingRef = useRef(false);
+
   const fetchRun = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     setFetchError('');
     try {
@@ -149,11 +155,12 @@ export default function SkuIndexSyncBell() {
       const msg = err.response?.data?.details || err.response?.data?.error || err.message;
       setFetchError(`Failed to load sync status: ${msg}`);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }, []);
 
-  // One read on mount — cheap, and never repeated on its own
+  // One read on mount so the badge is accurate before the bell is ever opened
   useEffect(() => {
     fetchRun();
   }, [fetchRun]);
@@ -203,7 +210,7 @@ export default function SkuIndexSyncBell() {
     <>
       <Tooltip title="SKU Index Sync — daily run progress" arrow>
         <IconButton
-          onClick={(e) => setAnchorEl(e.currentTarget)}
+          onClick={(e) => { setAnchorEl(e.currentTarget); fetchRun(); }}
           sx={{
             mr: 1,
             minHeight: 40,
@@ -351,7 +358,7 @@ export default function SkuIndexSyncBell() {
         <Divider />
         <Box sx={{ px: 2, py: 1 }}>
           <Typography variant="caption" color="text.secondary">
-            View only · press refresh for the latest progress
+            View only · refreshes every time you open this
           </Typography>
         </Box>
       </Popover>
