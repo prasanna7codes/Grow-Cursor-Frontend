@@ -1013,7 +1013,7 @@ export default function AdminLayout({ user, onLogout }) {
               Grow Mentality | Nurture Proper for The Future
             </Typography>
           </Box>
-          {hasAccess('SkuIndexSync') && <SkuIndexSyncBell />}
+          <SkuIndexSyncBell />
           <DiscountAlertsBell />
           <Button
             startIcon={(
