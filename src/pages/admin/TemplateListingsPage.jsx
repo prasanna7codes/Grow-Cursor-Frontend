@@ -970,8 +970,16 @@ export default function TemplateListingsPage() {
                     }
                   : item
               )));
+
+              // The single-ASIN path says so on screen when an overlay doesn't
+              // apply; without this the bulk path stayed silent about it. The
+              // log, not the item: the 'item' message below replaces the item
+              // wholesale, so anything stashed on it here would be lost.
+              if (message.overlayWarning) {
+                setProcessingLog(prev => [...prev, `⚠️ ${message.asin}: ${message.overlayWarning}`]);
+              }
               break;
-              
+
             case 'item':
               // Update preview items with completed item
               setPreviewItems(prev => {
