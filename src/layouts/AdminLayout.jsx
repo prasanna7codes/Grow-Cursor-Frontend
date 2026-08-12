@@ -174,6 +174,7 @@ const WelcomePage = lazy(() => import('../pages/admin/WelcomePage.jsx'));
 import PageLoader from '../components/PageLoader.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import DiscountAlertsBell from '../components/DiscountAlertsBell.jsx';
+import SkuIndexSyncBell from '../components/SkuIndexSyncBell.jsx';
 import usePageAccess from '../hooks/usePageAccess';
 import api, { getAuthToken } from '../lib/api.js';
 import { PAGE_REGISTRY, PAGE_CATEGORIES, SUBMENUS } from '../constants/pages';
@@ -1012,6 +1013,7 @@ export default function AdminLayout({ user, onLogout }) {
               Grow Mentality | Nurture Proper for The Future
             </Typography>
           </Box>
+          <SkuIndexSyncBell />
           <DiscountAlertsBell />
           <Button
             startIcon={(
