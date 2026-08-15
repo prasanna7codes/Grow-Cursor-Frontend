@@ -20,11 +20,6 @@ import { tableHeaderCellSx, tableContainerSx, yellowFilledButtonSx, yellowOutlin
 const getSellerDisplayName = (seller) =>
   seller?.user?.username || seller?.user?.email || seller?.name || 'Unknown Seller';
 
-const formatCacheAge = (seconds) => {
-  const s = Number(seconds) || 0;
-  return s < 90 ? `${s}s` : `${Math.round(s / 60)}m`;
-};
-
 const formatSyncedAgo = (isoDate) => {
   if (!isoDate) return 'just now';
   const minutes = Math.round((Date.now() - new Date(isoDate).getTime()) / 60000);
@@ -79,15 +74,18 @@ export default function ListingOverlaysPage() {
   const [previewFilter, setPreviewFilter] = useState('all');
 
   const [loadingListings, setLoadingListings] = useState(false);
-  const [crawlProgress, setCrawlProgress] = useState({ page: 0, totalPages: 0, scanned: 0, matched: 0 });
 
   // Stored snapshot state: { count, syncedAt } per seller id.
   const [snapshots, setSnapshots] = useState({});
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState({ page: 0, totalPages: 0, stored: 0 });
   // Set when a result came from the in-memory crawl cache (live mode only).
-  const [cacheInfo, setCacheInfo] = useState(null);
-  void cacheInfo;
+  // Summary of the last submitted run, so Revert stays reachable after the
+  // review panel closes.
+  const [lastRun, setLastRun] = useState(null);
+  // Per-listing submit failures. Kept separate from `previews`, which the
+  // auto-return clears — otherwise eBay's reason for each failure is lost.
+  const [submitFailures, setSubmitFailures] = useState([]);
 
   const [previews, setPreviews] = useState([]);
   // Review-step exclusions: previewed rows the operator unticked before submit.
@@ -261,17 +259,13 @@ export default function ListingOverlaysPage() {
     setPreviews([]);
     setRunId(null);
     setSubmitResult(null);
-    setCacheInfo(null);
-    setCrawlProgress({ page: 0, totalPages: 0, scanned: 0, matched: 0 });
     setLoadingListings(true);
 
     const url = `${api.defaults.baseURL}/listing-overlays/listings-stream`
       + `?sellerId=${encodeURIComponent(sellerId)}`
       + `&category=${encodeURIComponent(categoryQuery.trim())}`
       + `&search=${encodeURIComponent(keywordQuery.trim())}`
-      + `&refresh=${forceRefresh === true ? 'true' : 'false'}`
       + `&includeBadged=${includeBadged ? 'true' : 'false'}`
-      + `&source=${forceRefresh === true ? 'live' : 'stored'}`
       + `&token=${encodeURIComponent(getAuthToken())}`;
 
     const es = new EventSource(url);
@@ -291,29 +285,15 @@ export default function ListingOverlaysPage() {
           case 'item':
             setListings((prev) => [...prev, msg.item]);
             break;
-          case 'progress':
-            setCrawlProgress({
-              page: msg.page,
-              totalPages: msg.totalPages,
-              scanned: msg.scanned,
-              matched: msg.matched,
-            });
-            break;
           case 'complete': {
             listingsDoneRef.current = true;
-            const fromCache = Boolean(msg.fromCache);
-            setCacheInfo(fromCache ? { ageSeconds: msg.cacheAgeSeconds || 0 } : null);
-
             if (msg.snapshotEmpty) {
               setError('No listings stored for this seller yet — run "Sync listings from eBay" first.');
               break;
             }
 
             setSuccess(
-              `Matched ${msg.matched.toLocaleString()} of ${msg.scanned.toLocaleString()} listing${msg.scanned === 1 ? '' : 's'}`
-              + (msg.fromSnapshot ? ' (from the stored snapshot)' : '')
-              + (fromCache ? ` (from a scan ${formatCacheAge(msg.cacheAgeSeconds)} ago)` : '')
-              + '.'
+              `Matched ${msg.matched.toLocaleString()} of ${msg.scanned.toLocaleString()} stored listing${msg.scanned === 1 ? '' : 's'}.`
               + (msg.hiddenBadged > 0
                 ? ` ${msg.hiddenBadged} already badged and hidden.`
                 : '')
@@ -357,6 +337,7 @@ export default function ListingOverlaysPage() {
     setPreviewPage(0);
     setPreviewFilter('all');
     setSubmitResult(null);
+    setSubmitFailures([]);
     setPreviewProgress({ current: 0, total: selectedIds.size });
     setPreviewing(true);
 
@@ -464,30 +445,56 @@ export default function ListingOverlaysPage() {
       });
       setSubmitResult(data);
 
-      // Drop the listings that now carry a live badge straight out of the
-      // table, rather than leaving them there until the next search. Only the
-      // ones that actually succeeded: a failed revise is still badgeable, so it
-      // has to stay visible to be retried.
-      const submittedIds = new Set(
-        (data.results || []).filter((r) => r.status === 'submitted').map((r) => String(r.itemId))
+      // Two kinds of row leave the table: the ones now carrying a live badge,
+      // and the ones eBay says have ended. An ended listing can never be
+      // revised, so keeping it would mean re-picking a dead row every pass —
+      // the server prunes it from the snapshot for the same reason. Ordinary
+      // failures stay put, because those are worth retrying.
+      const results = data.results || [];
+      const removeIds = new Set(
+        results
+          .filter((r) => r.status === 'submitted' || r.ended)
+          .map((r) => String(r.itemId))
       );
 
-      if (submittedIds.size) {
-        setListings((prev) => prev.filter((l) => !submittedIds.has(String(l.itemId))));
+      setSubmitFailures(results.filter((r) => r.status === 'failed'));
+
+      if (removeIds.size) {
+        setListings((prev) => prev.filter((l) => !removeIds.has(String(l.itemId))));
         setSelectedIds((prev) => {
           const next = new Set(prev);
-          submittedIds.forEach((id) => next.delete(id));
+          removeIds.forEach((id) => next.delete(id));
           return next;
         });
         // The list just got shorter; a page near the end may no longer exist.
         setPage(0);
       }
 
+      const endedCount = results.filter((r) => r.ended).length;
       setSuccess(
         `Revised ${data.successCount} listing${data.successCount === 1 ? '' : 's'} on eBay`
-        + (data.failedCount ? ` · ${data.failedCount} failed and stayed in the list` : '')
+        + (endedCount ? ` · ${endedCount} had ended and were removed` : '')
+        + (data.failedCount - endedCount > 0
+          ? ` · ${data.failedCount - endedCount} failed and stayed in the list`
+          : '')
         + '.'
       );
+
+      // Straight back to the table so the next batch can be picked. The run is
+      // remembered separately, because closing the review panel would otherwise
+      // take the Revert button with it.
+      setLastRun({
+        runId,
+        successCount: data.successCount,
+        failedCount: data.failedCount,
+        revertedCount: 0,
+      });
+      setPreviews([]);
+      setExcludedIds(new Set());
+      setPreviewPage(0);
+      setPreviewFilter('all');
+      setRunId(null);
+      setSubmitResult(null);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to submit revisions');
     } finally {
@@ -496,11 +503,15 @@ export default function ListingOverlaysPage() {
   };
 
   const revertRun = async () => {
+    const targetRunId = runId || lastRun?.runId;
+    if (!targetRunId) return;
+
     setSubmitting(true);
     setError('');
 
     try {
-      const { data } = await api.post(`/listing-overlays/runs/${runId}/revert`);
+      const { data } = await api.post(`/listing-overlays/runs/${targetRunId}/revert`);
+      setLastRun(null);
       // Reverted listings are badgeable again, but they were removed from the
       // table on submit and their rows are gone from local state — a fresh
       // search brings them back, since only 'submitted' items are hidden.
@@ -570,16 +581,66 @@ export default function ListingOverlaysPage() {
         </Alert>
       </Snackbar>
 
-      <Alert severity="info" sx={{ mb: 2 }}>
-        Listings are read <strong>live from eBay</strong> each time you load them. Applying an overlay
-        uploads the badged picture to eBay, but nothing on your live listings changes until you press
-        <strong> Submit to eBay</strong>. Every run stores the original images and can be reverted.
+      <Alert severity="info" sx={{ mb: 3 }}>
+        Searches run against a <strong>stored snapshot</strong> of the seller's listings. Applying an
+        overlay uploads the badged picture to eBay, but nothing on your live listings changes until you
+        press <strong>Submit to eBay</strong>. Every run stores the original images and can be reverted.
       </Alert>
 
-      {/* ── Step 1: seller + load ─────────────────────────────────────── */}
-      <Paper sx={{ p: 2.5, mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-          1 · Choose a seller and what to look for
+      {/* eBay's reason per listing. Without this the auto-return would clear
+          the previews and leave only a failure count with no explanation. */}
+      {submitFailures.length > 0 && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          onClose={() => setSubmitFailures([])}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+            {submitFailures.length} listing{submitFailures.length === 1 ? '' : 's'} could not be revised
+          </Typography>
+          <Stack spacing={0.75}>
+            {submitFailures.map((f) => (
+              <Box key={f.itemId}>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  {f.title || f.itemId}
+                  {f.ended && ' · removed from the list'}
+                </Typography>
+                <Typography variant="caption" color="error" sx={{ display: 'block' }}>
+                  {f.error}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Alert>
+      )}
+
+      {/* Survives the review panel closing, so a submitted run stays revertible
+          after the page returns to the listings table. */}
+      {lastRun && previews.length === 0 && (
+        <Alert
+          severity="success"
+          sx={{ mb: 3 }}
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button size="small" color="warning" disabled={submitting} onClick={revertRun}>
+                Revert this run
+              </Button>
+              <Button size="small" onClick={() => setLastRun(null)}>Dismiss</Button>
+            </Stack>
+          }
+        >
+          Last run: {lastRun.successCount} listing{lastRun.successCount === 1 ? '' : 's'} revised on eBay
+          {lastRun.failedCount ? ` · ${lastRun.failedCount} failed` : ''}.
+        </Alert>
+      )}
+
+      {/* ── Section 1: find ───────────────────────────────────────────── */}
+      <Paper variant="outlined" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+        <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+          1 · Find listings
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Pick a seller, then narrow the stored listings by category or keyword.
         </Typography>
 
         {/* Snapshot state for the selected seller — the searches below run
@@ -685,16 +746,7 @@ export default function ListingOverlaysPage() {
           </Tooltip>
         </Stack>
 
-        {loadingListings && (
-          <>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-              {crawlProgress.totalPages > 0
-                ? `Page ${crawlProgress.page} of ${crawlProgress.totalPages} · scanned ${crawlProgress.scanned} · matched ${crawlProgress.matched}`
-                : 'Contacting eBay…'}
-            </Typography>
-            <LinearProgress sx={{ mt: 1 }} />
-          </>
-        )}
+        {loadingListings && <LinearProgress sx={{ mt: 2 }} />}
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
           Keyword: <strong>phone case</strong> needs both words in the title (any order) ·{' '}
@@ -705,11 +757,14 @@ export default function ListingOverlaysPage() {
         </Typography>
       </Paper>
 
-      {/* ── Step 2: filter + choose badge ─────────────────────────────── */}
-      {listings.length > 0 && (
-        <Paper sx={{ p: 2.5, mb: 3 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-            2 · Choose a badge
+      {/* ── Section 2: select listings + pick the badge ───────────────── */}
+      {listings.length > 0 && previews.length === 0 && (
+        <Paper variant="outlined" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+            2 · Select listings and choose a badge
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Tick the listings to badge, set the badge and its placement, then apply.
           </Typography>
 
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
@@ -774,12 +829,8 @@ export default function ListingOverlaysPage() {
             </Typography>
           </Stack>
           {previewing && <LinearProgress sx={{ mt: 2 }} />}
-        </Paper>
-      )}
 
-      {/* ── Listings table ────────────────────────────────────────────── */}
-      {listings.length > 0 && previews.length === 0 && (
-        <TableContainer component={Paper} sx={{ ...tableContainerSx, mb: 3 }}>
+          <TableContainer sx={{ ...tableContainerSx, mt: 2 }}>
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
@@ -842,21 +893,35 @@ export default function ListingOverlaysPage() {
             rowsPerPageOptions={[25, 50, 100, 250]}
             labelRowsPerPage="Rows per page"
           />
-        </TableContainer>
+          </TableContainer>
+        </Paper>
       )}
 
-      {/* ── Step 3: review before / after ─────────────────────────────── */}
+      {/* ── Section 3: review + submit ────────────────────────────────── */}
       {previews.length > 0 && (
-        <Paper sx={{ p: 2.5, mb: 3 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              3 · Review ({keptItems.length} to submit
-              {excludedIds.size > 0 && `, ${excludedIds.size} excluded`}
-              {failedCount > 0 && `, ${failedCount} failed`})
-            </Typography>
+        <Paper variant="outlined" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                3 · Review and submit
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {keptItems.length} to submit
+                {excludedIds.size > 0 && ` · ${excludedIds.size} excluded`}
+                {failedCount > 0 && ` · ${failedCount} failed`}
+                {' '}· nothing has changed on eBay yet
+              </Typography>
+            </Box>
             <Stack direction="row" spacing={1}>
               <Button
-                onClick={() => { setPreviews([]); setExcludedIds(new Set()); setRunId(null); setSubmitResult(null); }}
+                onClick={() => {
+                  setPreviews([]);
+                  setExcludedIds(new Set());
+                  setPreviewPage(0);
+                  setPreviewFilter('all');
+                  setRunId(null);
+                  setSubmitResult(null);
+                }}
                 sx={yellowOutlinedButtonSx}
               >
                 Back to listings
