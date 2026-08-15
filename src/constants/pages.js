@@ -127,6 +127,7 @@ export const PAGE_REGISTRY = [
   { id: 'EndListingLookup', name: 'End Listing Lookup', path: '/end-listing-lookup', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'BestOffers', name: 'Best Offers', path: '/best-offers', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
   { id: 'Discounts', name: 'Discounts', path: '/discounts', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
+  { id: 'QuantityUpdateExclusions', name: 'Quantity Update Exclusions', path: '/quantity-update-exclusions', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin', 'fulfillmentadmin', 'hoc', 'compliancemanager'] },
 
   // ====== HR & MANAGEMENT ======
   { id: 'IdeasAndIssues', name: 'Ideas and Issues', path: '/ideas', category: 'hrManagement', defaultRoles: ['superadmin', 'hradmin', 'operationhead', 'listingadmin'] },
