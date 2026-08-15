@@ -1,0 +1,1002 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog,
+  DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, InputLabel,
+  LinearProgress, MenuItem, Paper, Select, Snackbar, Stack, Table, TableBody, TableCell,
+  TableContainer, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography
+} from '@mui/material';
+import {
+  CloudUpload as SubmitIcon,
+  PlayArrow as PlayIcon,
+  Undo as UndoIcon
+} from '@mui/icons-material';
+import api, { getAuthToken } from '../../lib/api.js';
+import AdminPageShell from '../../components/AdminPageShell.jsx';
+import PageHeader from '../../components/PageHeader.jsx';
+import { tableHeaderCellSx, tableContainerSx, yellowFilledButtonSx, yellowOutlinedButtonSx } from '../../theme/tableStyles.js';
+
+// Seller carries no name of its own — it is identified by the populated user.
+// Same derivation as AsinPrecheckPage and SelectSellerPage.
+const getSellerDisplayName = (seller) =>
+  seller?.user?.username || seller?.user?.email || seller?.name || 'Unknown Seller';
+
+const formatCacheAge = (seconds) => {
+  const s = Number(seconds) || 0;
+  return s < 90 ? `${s}s` : `${Math.round(s / 60)}m`;
+};
+
+const formatSyncedAgo = (isoDate) => {
+  if (!isoDate) return 'just now';
+  const minutes = Math.round((Date.now() - new Date(isoDate).getTime()) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+};
+
+// Page default. Deliberately above the compositor's 26% DEFAULT_PLACEMENT:
+// badges on existing listings were judged too small at 26.
+const DEFAULT_SCALE = 30;
+const ANCHORS = [
+  { value: 'bottom-right', label: 'Bottom right' },
+  { value: 'bottom-left', label: 'Bottom left' },
+  { value: 'top-right', label: 'Top right' },
+  { value: 'top-left', label: 'Top left' },
+];
+
+export default function ListingOverlaysPage() {
+  // Re-syncing crawls a seller's whole inventory and Delete throws the snapshot
+  // away, so both stay with superadmins even though others may be granted the
+  // page itself. Enforced again server-side — see the route's role check.
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isSuperAdmin = user?.role === 'superadmin';
+
+  const [sellers, setSellers] = useState([]);
+  const [sellerId, setSellerId] = useState('');
+  const [badges, setBadges] = useState([]);
+  const [badgeKey, setBadgeKey] = useState('');
+  const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [anchor, setAnchor] = useState('bottom-right');
+
+  const [listings, setListings] = useState([]);
+  // Filters are applied server-side as the crawl runs, so only matching
+  // listings ever reach the browser.
+  const [categoryQuery, setCategoryQuery] = useState('');
+  const [keywordQuery, setKeywordQuery] = useState('');
+  // Listings with a live badge are hidden by default so they cannot be badged
+  // twice. Showing them is opt-in and only useful alongside a revert.
+  const [includeBadged, setIncludeBadged] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  // Review step gets its own paging — the cards carry two images each, so a
+  // few hundred previews would otherwise mount ~1,000 images at once.
+  const [previewPage, setPreviewPage] = useState(0);
+  const [previewsPerPage, setPreviewsPerPage] = useState(25);
+  const [previewFilter, setPreviewFilter] = useState('all');
+
+  const [loadingListings, setLoadingListings] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState({ page: 0, totalPages: 0, scanned: 0, matched: 0 });
+
+  // Stored snapshot state: { count, syncedAt } per seller id.
+  const [snapshots, setSnapshots] = useState({});
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ page: 0, totalPages: 0, stored: 0 });
+  // Set when a result came from the in-memory crawl cache (live mode only).
+  const [cacheInfo, setCacheInfo] = useState(null);
+  void cacheInfo;
+
+  const [previews, setPreviews] = useState([]);
+  // Review-step exclusions: previewed rows the operator unticked before submit.
+  const [excludedIds, setExcludedIds] = useState(new Set());
+  const [previewing, setPreviewing] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState({ current: 0, total: 0 });
+  const [runId, setRunId] = useState(null);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // The crawl and the preview get their own EventSource refs. Sharing one meant
+  // starting a preview closed the still-running crawl — and because the server
+  // stops paging when the client disconnects, a 127-page scan died the moment
+  // you acted on the first match it found.
+  const listingsEsRef = useRef(null);
+  const previewEsRef = useRef(null);
+  const syncEsRef = useRef(null);
+  const syncDoneRef = useRef(false);
+  // A stream that finished normally still trips onerror: the server ends the
+  // response, and EventSource treats any close it did not initiate as a dropped
+  // connection to retry. Without this the page reports "connection lost" on
+  // every successful run. Tracked per stream for the same reason as the refs.
+  const listingsDoneRef = useRef(false);
+  const previewDoneRef = useRef(false);
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/sellers/all'),
+      api.get('/listing-templates/overlay-badges'),
+    ]).then(([sellerRes, badgeRes]) => {
+      setSellers(sellerRes.data || []);
+      setBadges(badgeRes.data?.badges || []);
+    }).catch(() => setError('Failed to load sellers or overlay badges'));
+
+    refreshSnapshotStatus();
+
+    return () => {
+      if (listingsEsRef.current) listingsEsRef.current.close();
+      if (previewEsRef.current) previewEsRef.current.close();
+      if (syncEsRef.current) syncEsRef.current.close();
+    };
+  }, []);
+
+  const refreshSnapshotStatus = () => {
+    api.get('/listing-overlays/snapshot/status')
+      .then(({ data }) => {
+        const byId = {};
+        (data.snapshots || []).forEach((s) => {
+          byId[s.sellerId] = { count: s.count, syncedAt: s.syncedAt };
+        });
+        setSnapshots(byId);
+      })
+      .catch(() => {});
+  };
+
+  const snapshot = sellerId ? snapshots[sellerId] : null;
+
+  const syncSnapshot = () => {
+    if (!sellerId) { setError('Select a seller first'); return; }
+
+    if (syncEsRef.current) syncEsRef.current.close();
+    syncDoneRef.current = false;
+    setError('');
+    setSuccess('');
+    setSyncProgress({ page: 0, totalPages: 0, stored: 0 });
+    setSyncing(true);
+
+    const url = `${api.defaults.baseURL}/listing-overlays/snapshot/sync-stream`
+      + `?sellerId=${encodeURIComponent(sellerId)}`
+      + `&token=${encodeURIComponent(getAuthToken())}`;
+
+    const es = new EventSource(url);
+    syncEsRef.current = es;
+
+    es.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        syncEsRef.current = null;
+        setSyncing(false);
+        refreshSnapshotStatus();
+        return;
+      }
+
+      try {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+          case 'progress':
+            setSyncProgress({ page: msg.page, totalPages: msg.totalPages, stored: msg.stored });
+            break;
+          case 'complete':
+            syncDoneRef.current = true;
+            setSuccess(
+              `Stored ${msg.total.toLocaleString()} listing${msg.total === 1 ? '' : 's'}`
+              + (msg.removed ? ` · removed ${msg.removed} that had ended` : '')
+              + (msg.partial ? ' · stopped early, so nothing was pruned' : '')
+              + '. Searches now run against this snapshot.'
+            );
+            break;
+          case 'error':
+            syncDoneRef.current = true;
+            setError(msg.error || 'Failed to sync listings');
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // ignore malformed frame
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      syncEsRef.current = null;
+      setSyncing(false);
+      refreshSnapshotStatus();
+      if (!syncDoneRef.current) setError('Connection lost while syncing listings.');
+    };
+  };
+
+  const stopSync = () => {
+    syncDoneRef.current = true;
+    if (syncEsRef.current) {
+      syncEsRef.current.close();
+      syncEsRef.current = null;
+    }
+    setSyncing(false);
+    refreshSnapshotStatus();
+  };
+
+  const deleteSnapshot = async () => {
+    if (!sellerId) return;
+    try {
+      const { data } = await api.delete(`/listing-overlays/snapshot?sellerId=${encodeURIComponent(sellerId)}`);
+      setSuccess(`Deleted ${data.deletedCount.toLocaleString()} stored listing${data.deletedCount === 1 ? '' : 's'} for this seller.`);
+      setListings([]);
+      setSelectedIds(new Set());
+      refreshSnapshotStatus();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete snapshot');
+    }
+  };
+
+  // Ends the crawl early. A seller with 25k listings is 127 pages; once the
+  // matches you want are on screen there is no reason to wait for the rest.
+  const stopScan = () => {
+    listingsDoneRef.current = true;
+    if (listingsEsRef.current) {
+      listingsEsRef.current.close();
+      listingsEsRef.current = null;
+    }
+    setLoadingListings(false);
+  };
+
+  // forceRefresh must be compared with === true: this is also used as an
+  // onKeyDown/onClick handler, where the first argument is a DOM event.
+  const loadListings = (forceRefresh) => {
+    if (!sellerId) { setError('Select a seller first'); return; }
+
+    if (listingsEsRef.current) listingsEsRef.current.close();
+    listingsDoneRef.current = false;
+    setError('');
+    setSuccess('');
+    setListings([]);
+    setSelectedIds(new Set());
+    setPage(0);
+    setPreviews([]);
+    setRunId(null);
+    setSubmitResult(null);
+    setCacheInfo(null);
+    setCrawlProgress({ page: 0, totalPages: 0, scanned: 0, matched: 0 });
+    setLoadingListings(true);
+
+    const url = `${api.defaults.baseURL}/listing-overlays/listings-stream`
+      + `?sellerId=${encodeURIComponent(sellerId)}`
+      + `&category=${encodeURIComponent(categoryQuery.trim())}`
+      + `&search=${encodeURIComponent(keywordQuery.trim())}`
+      + `&refresh=${forceRefresh === true ? 'true' : 'false'}`
+      + `&includeBadged=${includeBadged ? 'true' : 'false'}`
+      + `&source=${forceRefresh === true ? 'live' : 'stored'}`
+      + `&token=${encodeURIComponent(getAuthToken())}`;
+
+    const es = new EventSource(url);
+    listingsEsRef.current = es;
+
+    es.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        listingsEsRef.current = null;
+        setLoadingListings(false);
+        return;
+      }
+
+      try {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+          case 'item':
+            setListings((prev) => [...prev, msg.item]);
+            break;
+          case 'progress':
+            setCrawlProgress({
+              page: msg.page,
+              totalPages: msg.totalPages,
+              scanned: msg.scanned,
+              matched: msg.matched,
+            });
+            break;
+          case 'complete': {
+            listingsDoneRef.current = true;
+            const fromCache = Boolean(msg.fromCache);
+            setCacheInfo(fromCache ? { ageSeconds: msg.cacheAgeSeconds || 0 } : null);
+
+            if (msg.snapshotEmpty) {
+              setError('No listings stored for this seller yet — run "Sync listings from eBay" first.');
+              break;
+            }
+
+            setSuccess(
+              `Matched ${msg.matched.toLocaleString()} of ${msg.scanned.toLocaleString()} listing${msg.scanned === 1 ? '' : 's'}`
+              + (msg.fromSnapshot ? ' (from the stored snapshot)' : '')
+              + (fromCache ? ` (from a scan ${formatCacheAge(msg.cacheAgeSeconds)} ago)` : '')
+              + '.'
+              + (msg.hiddenBadged > 0
+                ? ` ${msg.hiddenBadged} already badged and hidden.`
+                : '')
+              + (msg.matched === 0 && !msg.hiddenBadged ? ' Try a broader category or keyword.' : '')
+            );
+            break;
+          }
+          case 'error':
+            listingsDoneRef.current = true;
+            setError(msg.error || 'Failed to load listings');
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // A malformed frame should not kill an otherwise healthy crawl.
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      listingsEsRef.current = null;
+      setLoadingListings(false);
+      // Only a genuine drop is worth reporting; see listingsDoneRef.
+      if (!listingsDoneRef.current) setError('Connection lost while loading listings.');
+    };
+  };
+
+  const applyOverlay = () => {
+    if (!badgeKey) { setError('Pick an overlay badge first'); return; }
+    if (selectedIds.size === 0) { setError('Select at least one listing'); return; }
+
+    // Deliberately leaves listingsEsRef alone: the crawl keeps running while
+    // you badge what it has already found.
+    if (previewEsRef.current) previewEsRef.current.close();
+    previewDoneRef.current = false;
+    setError('');
+    setSuccess('');
+    setPreviews([]);
+    setExcludedIds(new Set());
+    setPreviewPage(0);
+    setPreviewFilter('all');
+    setSubmitResult(null);
+    setPreviewProgress({ current: 0, total: selectedIds.size });
+    setPreviewing(true);
+
+    const ids = [...selectedIds].join(',');
+    const url = `${api.defaults.baseURL}/listing-overlays/preview-stream`
+      + `?sellerId=${encodeURIComponent(sellerId)}`
+      + `&badgeKey=${encodeURIComponent(badgeKey)}`
+      + `&itemIds=${encodeURIComponent(ids)}`
+      + `&scale=${scale / 100}`
+      + `&anchor=${encodeURIComponent(anchor)}`
+      + `&category=${encodeURIComponent(categoryQuery.trim())}`
+      + `&search=${encodeURIComponent(keywordQuery.trim())}`
+      + `&token=${encodeURIComponent(getAuthToken())}`;
+
+    const es = new EventSource(url);
+    previewEsRef.current = es;
+
+    es.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        previewEsRef.current = null;
+        setPreviewing(false);
+        return;
+      }
+
+      try {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+          case 'started':
+            setRunId(msg.runId);
+            setPreviewProgress({ current: 0, total: msg.total });
+            break;
+          case 'item':
+            setPreviews((prev) => [...prev, msg.item]);
+            setPreviewProgress({ current: msg.progress, total: msg.total });
+            break;
+          case 'complete':
+            previewDoneRef.current = true;
+            setRunId(msg.runId);
+            break;
+          case 'error':
+            previewDoneRef.current = true;
+            setError(msg.error || 'Overlay preview failed');
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // ignore malformed frame
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      previewEsRef.current = null;
+      setPreviewing(false);
+      if (!previewDoneRef.current) setError('Connection lost during overlay preview.');
+    };
+  };
+
+  const previewedOk = previews.filter((p) => p.status === 'previewed');
+
+  // Failures are the actionable rows and can be scattered anywhere in a large
+  // batch, so they get a filter rather than requiring a page-by-page hunt.
+  const filteredPreviews = useMemo(() => {
+    switch (previewFilter) {
+      case 'ready':
+        return previews.filter((p) => p.status === 'previewed' && !excludedIds.has(p.itemId));
+      case 'failed':
+        return previews.filter((p) => p.status === 'failed');
+      case 'excluded':
+        return previews.filter((p) => excludedIds.has(p.itemId));
+      default:
+        return previews;
+    }
+  }, [previews, previewFilter, excludedIds]);
+
+  const pagedPreviews = useMemo(
+    () => filteredPreviews.slice(previewPage * previewsPerPage, previewPage * previewsPerPage + previewsPerPage),
+    [filteredPreviews, previewPage, previewsPerPage]
+  );
+
+  const failedCount = previews.length - previewedOk.length;
+  // Rows unticked in the review step. Only kept rows are sent to eBay — the
+  // server revises exactly the itemIds it is given, nothing else in the run.
+  const keptItems = previewedOk.filter((p) => !excludedIds.has(p.itemId));
+
+  const toggleExcluded = (itemId) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const submitToEbay = async () => {
+    setConfirmOpen(false);
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const { data } = await api.post(`/listing-overlays/runs/${runId}/submit`, {
+        itemIds: keptItems.map((p) => p.itemId),
+      });
+      setSubmitResult(data);
+
+      // Drop the listings that now carry a live badge straight out of the
+      // table, rather than leaving them there until the next search. Only the
+      // ones that actually succeeded: a failed revise is still badgeable, so it
+      // has to stay visible to be retried.
+      const submittedIds = new Set(
+        (data.results || []).filter((r) => r.status === 'submitted').map((r) => String(r.itemId))
+      );
+
+      if (submittedIds.size) {
+        setListings((prev) => prev.filter((l) => !submittedIds.has(String(l.itemId))));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          submittedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        // The list just got shorter; a page near the end may no longer exist.
+        setPage(0);
+      }
+
+      setSuccess(
+        `Revised ${data.successCount} listing${data.successCount === 1 ? '' : 's'} on eBay`
+        + (data.failedCount ? ` · ${data.failedCount} failed and stayed in the list` : '')
+        + '.'
+      );
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to submit revisions');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const revertRun = async () => {
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const { data } = await api.post(`/listing-overlays/runs/${runId}/revert`);
+      // Reverted listings are badgeable again, but they were removed from the
+      // table on submit and their rows are gone from local state — a fresh
+      // search brings them back, since only 'submitted' items are hidden.
+      setSuccess(
+        `Reverted ${data.revertedCount} listing${data.revertedCount === 1 ? '' : 's'} to their original images.`
+        + ' Search again to see them back in the list.'
+      );
+      setSubmitResult(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to revert run');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Rows currently rendered. Streaming keeps appending to `listings`, so a page
+  // being viewed mid-crawl simply fills up rather than shifting under you.
+  const pagedListings = useMemo(
+    () => listings.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [listings, page, rowsPerPage]
+  );
+
+  // The header checkbox acts on the current page only — the table convention,
+  // and the safe default when the alternative silently selects 1,200 live
+  // listings. Selecting everything is a separate, explicit button.
+  const togglePageSelection = (checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      pagedListings.forEach((l) => (checked ? next.add(l.itemId) : next.delete(l.itemId)));
+      return next;
+    });
+  };
+
+  const selectAllMatching = () => setSelectedIds(new Set(listings.map((l) => l.itemId)));
+
+  const pageAllSelected = pagedListings.length > 0
+    && pagedListings.every((l) => selectedIds.has(l.itemId));
+
+  return (
+    <AdminPageShell>
+      <PageHeader title="Listing Overlays" />
+
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/* Centred rather than inline: a confirmation at the top of a long page
+          is easy to miss after scrolling through a few hundred previews. */}
+      <Snackbar
+        open={Boolean(success)}
+        autoHideDuration={6000}
+        onClose={() => setSuccess('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{
+          top: '50%',
+          left: '50%',
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+        }}
+      >
+        <Alert
+          severity="success"
+          variant="filled"
+          onClose={() => setSuccess('')}
+          sx={{ boxShadow: 6, fontSize: '1rem', alignItems: 'center' }}
+        >
+          {success}
+        </Alert>
+      </Snackbar>
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Listings are read <strong>live from eBay</strong> each time you load them. Applying an overlay
+        uploads the badged picture to eBay, but nothing on your live listings changes until you press
+        <strong> Submit to eBay</strong>. Every run stores the original images and can be reverted.
+      </Alert>
+
+      {/* ── Step 1: seller + load ─────────────────────────────────────── */}
+      <Paper sx={{ p: 2.5, mb: 3 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+          1 · Choose a seller and what to look for
+        </Typography>
+
+        {/* Snapshot state for the selected seller — the searches below run
+            against this, so its freshness is worth showing up front. */}
+        {sellerId && (
+          <Alert
+            severity={snapshot ? 'success' : 'warning'}
+            sx={{ mb: 2 }}
+            action={
+              <Stack direction="row" spacing={1}>
+                {syncing ? (
+                  isSuperAdmin && <Button size="small" onClick={stopSync}>Stop</Button>
+                ) : isSuperAdmin ? (
+                  <>
+                    <Button size="small" onClick={syncSnapshot}>
+                      {snapshot ? 'Re-sync' : 'Sync listings from eBay'}
+                    </Button>
+                    {snapshot && (
+                      <Button size="small" color="warning" onClick={deleteSnapshot}>
+                        Delete
+                      </Button>
+                    )}
+                  </>
+                ) : null}
+              </Stack>
+            }
+          >
+            {syncing
+              ? `Syncing… ${syncProgress.totalPages ? `page ${syncProgress.page} of ${syncProgress.totalPages} · ` : ''}${syncProgress.stored.toLocaleString()} stored`
+              : snapshot
+                ? `${snapshot.count.toLocaleString()} listings stored · synced ${formatSyncedAgo(snapshot.syncedAt)}`
+                : isSuperAdmin
+                  ? 'No listings stored for this seller yet. Sync once, then search as often as you like without re-crawling eBay.'
+                  : 'No listings stored for this seller yet. Ask a superadmin to run the sync.'}
+          </Alert>
+        )}
+        {syncing && <LinearProgress sx={{ mb: 2 }} />}
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }} flexWrap="wrap" useFlexGap>
+          <Autocomplete
+            sx={{ minWidth: 260 }}
+            options={sellers}
+            getOptionLabel={getSellerDisplayName}
+            // Two sellers can share a username, so the key comes from _id
+            // rather than the label MUI would otherwise fall back to.
+            renderOption={(props, option) => {
+              const { key: _ignored, ...rest } = props;
+              return <li key={option._id} {...rest}>{getSellerDisplayName(option)}</li>;
+            }}
+            isOptionEqualToValue={(option, value) => option._id === value._id}
+            value={sellers.find((s) => s._id === sellerId) || null}
+            onChange={(_, v) => setSellerId(v?._id || '')}
+            renderInput={(params) => <TextField {...params} label="Seller" size="small" />}
+          />
+
+          <TextField
+            size="small"
+            label="Category contains"
+            placeholder="e.g. Smart Watches"
+            value={categoryQuery}
+            onChange={(e) => setCategoryQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && sellerId && !loadingListings) loadListings(); }}
+            sx={{ minWidth: 220 }}
+          />
+
+          <TextField
+            size="small"
+            label="Keyword"
+            placeholder="phone case · strap,band"
+            value={keywordQuery}
+            onChange={(e) => setKeywordQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && sellerId && !loadingListings) loadListings(); }}
+            sx={{ minWidth: 220 }}
+          />
+
+          <Button
+            variant="contained"
+            startIcon={loadingListings ? <CircularProgress size={16} /> : <PlayIcon />}
+            disabled={!sellerId || loadingListings || syncing || !snapshot}
+            onClick={() => loadListings()}
+            sx={yellowFilledButtonSx}
+          >
+            {loadingListings ? 'Searching…' : 'Find listings'}
+          </Button>
+
+          {loadingListings && (
+            <Button variant="outlined" onClick={stopScan} sx={yellowOutlinedButtonSx}>
+              Stop
+            </Button>
+          )}
+
+          <Tooltip title="Listings whose badge is live are hidden so they cannot be badged twice. Show them only if you intend to revert first.">
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={includeBadged}
+                  onChange={(e) => setIncludeBadged(e.target.checked)}
+                  disabled={loadingListings}
+                />
+              }
+              label={<Typography variant="caption">Show already-badged</Typography>}
+            />
+          </Tooltip>
+        </Stack>
+
+        {loadingListings && (
+          <>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              {crawlProgress.totalPages > 0
+                ? `Page ${crawlProgress.page} of ${crawlProgress.totalPages} · scanned ${crawlProgress.scanned} · matched ${crawlProgress.matched}`
+                : 'Contacting eBay…'}
+            </Typography>
+            <LinearProgress sx={{ mt: 1 }} />
+          </>
+        )}
+
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+          Keyword: <strong>phone case</strong> needs both words in the title (any order) ·{' '}
+          <strong>strap,band</strong> matches either · <strong>apple strap,apple band</strong> combines the two.
+          Leave both boxes empty to return everything stored. Searches run against the synced snapshot, so
+          you can change keywords as often as you like without touching eBay — re-sync only when the
+          seller's listings have actually changed.
+        </Typography>
+      </Paper>
+
+      {/* ── Step 2: filter + choose badge ─────────────────────────────── */}
+      {listings.length > 0 && (
+        <Paper sx={{ p: 2.5, mb: 3 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+            2 · Choose a badge
+          </Typography>
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel>Overlay badge</InputLabel>
+              <Select label="Overlay badge" value={badgeKey} onChange={(e) => setBadgeKey(e.target.value)}>
+                {badges.map((b) => (
+                  <MenuItem key={b.key} value={b.key}>{b.label || b.key}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <TextField
+              size="small"
+              type="number"
+              label="Size (% of longest edge)"
+              value={scale}
+              onChange={(e) => setScale(Math.min(Math.max(Number(e.target.value) || 0, 5), 100))}
+              inputProps={{ min: 5, max: 100 }}
+              sx={{ width: 190 }}
+              helperText="Default 30%"
+            />
+
+            <FormControl size="small" sx={{ width: 170 }}>
+              <InputLabel>Position</InputLabel>
+              <Select label="Position" value={anchor} onChange={(e) => setAnchor(e.target.value)}>
+                {ANCHORS.map((a) => <MenuItem key={a.value} value={a.value}>{a.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2 }}>
+            <Button
+              variant="contained"
+              disabled={previewing || selectedIds.size === 0 || !badgeKey}
+              startIcon={previewing ? <CircularProgress size={16} /> : <PlayIcon />}
+              onClick={applyOverlay}
+              sx={yellowFilledButtonSx}
+            >
+              {previewing
+                ? `Applying… ${previewProgress.current}/${previewProgress.total}`
+                : `Apply overlay to ${selectedIds.size} selected`}
+            </Button>
+
+            <Button
+              size="small"
+              onClick={selectAllMatching}
+              disabled={previewing || selectedIds.size === listings.length}
+              sx={yellowOutlinedButtonSx}
+            >
+              Select all {listings.length}
+            </Button>
+
+            {selectedIds.size > 0 && (
+              <Button size="small" onClick={() => setSelectedIds(new Set())} disabled={previewing}>
+                Clear selection
+              </Button>
+            )}
+
+            <Typography variant="caption" color="text.secondary">
+              {listings.length} matching listing{listings.length === 1 ? '' : 's'}
+            </Typography>
+          </Stack>
+          {previewing && <LinearProgress sx={{ mt: 2 }} />}
+        </Paper>
+      )}
+
+      {/* ── Listings table ────────────────────────────────────────────── */}
+      {listings.length > 0 && previews.length === 0 && (
+        <TableContainer component={Paper} sx={{ ...tableContainerSx, mb: 3 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" sx={tableHeaderCellSx}>
+                  <Tooltip title="Select everything on this page">
+                    <Checkbox
+                      checked={pageAllSelected}
+                      indeterminate={!pageAllSelected && pagedListings.some((l) => selectedIds.has(l.itemId))}
+                      onChange={(e) => togglePageSelection(e.target.checked)}
+                    />
+                  </Tooltip>
+                </TableCell>
+                <TableCell sx={{ ...tableHeaderCellSx, width: 80 }}>Image</TableCell>
+                <TableCell sx={tableHeaderCellSx}>Title</TableCell>
+                <TableCell sx={tableHeaderCellSx}>SKU</TableCell>
+                <TableCell sx={tableHeaderCellSx}>Category</TableCell>
+                <TableCell sx={tableHeaderCellSx}>Item ID</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {pagedListings.map((l) => (
+                <TableRow key={l.itemId} hover>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedIds.has(l.itemId)}
+                      onChange={(e) => setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(l.itemId); else next.delete(l.itemId);
+                        return next;
+                      })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {l.image
+                      ? <Box component="img" src={l.image} alt="" sx={{ width: 48, height: 48, objectFit: 'contain' }} />
+                      : <Typography variant="caption" color="text.secondary">—</Typography>}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title={l.title}>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 420 }}>{l.title}</Typography>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell><Typography variant="caption">{l.sku || '—'}</Typography></TableCell>
+                  <TableCell><Typography variant="caption">{l.categoryName || '—'}</Typography></TableCell>
+                  <TableCell><Typography variant="caption">{l.itemId}</Typography></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            component="div"
+            count={listings.length}
+            page={page}
+            onPageChange={(_, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[25, 50, 100, 250]}
+            labelRowsPerPage="Rows per page"
+          />
+        </TableContainer>
+      )}
+
+      {/* ── Step 3: review before / after ─────────────────────────────── */}
+      {previews.length > 0 && (
+        <Paper sx={{ p: 2.5, mb: 3 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              3 · Review ({keptItems.length} to submit
+              {excludedIds.size > 0 && `, ${excludedIds.size} excluded`}
+              {failedCount > 0 && `, ${failedCount} failed`})
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Button
+                onClick={() => { setPreviews([]); setExcludedIds(new Set()); setRunId(null); setSubmitResult(null); }}
+                sx={yellowOutlinedButtonSx}
+              >
+                Back to listings
+              </Button>
+              {submitResult ? (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<UndoIcon />}
+                  disabled={submitting}
+                  onClick={revertRun}
+                >
+                  Revert this run
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  startIcon={submitting ? <CircularProgress size={16} /> : <SubmitIcon />}
+                  disabled={submitting || keptItems.length === 0}
+                  onClick={() => setConfirmOpen(true)}
+                  sx={yellowFilledButtonSx}
+                >
+                  Submit {keptItems.length} to eBay
+                </Button>
+              )}
+            </Stack>
+          </Stack>
+
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+            {[
+              ['all', `All (${previews.length})`],
+              ['ready', `Ready (${keptItems.length})`],
+              ['excluded', `Excluded (${excludedIds.size})`],
+              ['failed', `Failed (${failedCount})`],
+            ].map(([value, label]) => (
+              <Chip
+                key={value}
+                size="small"
+                label={label}
+                color={previewFilter === value ? 'primary' : 'default'}
+                variant={previewFilter === value ? 'filled' : 'outlined'}
+                onClick={() => { setPreviewFilter(value); setPreviewPage(0); }}
+              />
+            ))}
+          </Stack>
+
+          <Stack spacing={2}>
+            {pagedPreviews.map((p) => {
+              const excluded = excludedIds.has(p.itemId);
+              return (
+              <Paper key={p.itemId} variant="outlined" sx={{ p: 2, opacity: excluded ? 0.45 : 1 }}>
+                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                  {p.status === 'previewed' && !submitResult && (
+                    <Tooltip title={excluded ? 'Excluded — will not be submitted' : 'Included in the submit'}>
+                      <Checkbox
+                        checked={!excluded}
+                        onChange={() => toggleExcluded(p.itemId)}
+                        disabled={submitting}
+                      />
+                    </Tooltip>
+                  )}
+                  <Box sx={{ flex: '1 1 320px', minWidth: 260 }}>
+                    <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{p.title || p.itemId}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {p.sku ? `${p.sku} · ` : ''}{p.itemId}
+                    </Typography>
+                    <Box sx={{ mt: 0.5 }}>
+                      <Chip
+                        size="small"
+                        label={excluded ? 'excluded' : p.status}
+                        color={p.status === 'failed' ? 'error' : p.status === 'submitted' ? 'success' : 'default'}
+                      />
+                    </Box>
+                    {p.error && (
+                      <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                        {p.error}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {p.status !== 'failed' && (
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" display="block">Before</Typography>
+                        <Box component="img" src={p.originalImages?.[0]} alt="before" loading="lazy"
+                          sx={{ width: 120, height: 120, objectFit: 'contain', border: '1px solid', borderColor: 'divider' }} />
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" display="block">After</Typography>
+                        <Box component="img" src={p.newImages?.[0]} alt="after" loading="lazy"
+                          sx={{ width: 120, height: 120, objectFit: 'contain', border: '2px solid', borderColor: 'success.main' }} />
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {p.newImages?.length || 0} image{(p.newImages?.length || 0) === 1 ? '' : 's'} re-hosted
+                      </Typography>
+                    </Stack>
+                  )}
+                </Stack>
+              </Paper>
+              );
+            })}
+          </Stack>
+
+          {filteredPreviews.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+              Nothing in this view.
+            </Typography>
+          )}
+
+          <TablePagination
+            component="div"
+            count={filteredPreviews.length}
+            page={previewPage}
+            onPageChange={(_, newPage) => setPreviewPage(newPage)}
+            rowsPerPage={previewsPerPage}
+            onRowsPerPageChange={(e) => {
+              setPreviewsPerPage(parseInt(e.target.value, 10));
+              setPreviewPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100, 500]}
+            labelRowsPerPage="Previews per page"
+          />
+        </Paper>
+      )}
+
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogTitle>Revise {keptItems.length} live listing{keptItems.length === 1 ? '' : 's'}?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This replaces the pictures on listings that are live on eBay right now. The original images
+            are stored, so the whole run can be reverted from this page afterwards.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={submitToEbay} sx={yellowFilledButtonSx}>
+            Submit to eBay
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </AdminPageShell>
+  );
+}
