@@ -27,6 +27,10 @@ const formatPrice = (price, currency) => {
   return `${currency ? `${currency} ` : ''}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+// Deeper than MUI's default elevation so each card lifts clearly off the
+// white page instead of blending into it.
+const cardShadow = '0 2px 6px rgba(15, 23, 42, 0.10), 0 10px 28px rgba(15, 23, 42, 0.16)';
+
 /**
  * Search any SKU or ASIN and see which sellers carry it, straight from the
  * SellerSkuIndex collection the daily SKU Index Sync populates.
@@ -75,7 +79,7 @@ export default function SkuIndexLookupPage() {
         </Box>
 
         {/* Search bar */}
-        <Paper sx={{ p: 2, mb: 3 }}>
+        <Paper sx={{ p: 2, mb: 3, boxShadow: cardShadow }}>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
             <TextField
               size="small"
@@ -114,7 +118,7 @@ export default function SkuIndexLookupPage() {
 
         {/* No results */}
         {!loading && !error && result && sellers.length === 0 && (
-          <Paper sx={{ p: 4, textAlign: 'center' }}>
+          <Paper sx={{ p: 4, textAlign: 'center', boxShadow: cardShadow }}>
             <Typography color="text.secondary">
               No seller has <b>{searchedTerm}</b> in their synced SKU index.
             </Typography>
@@ -142,7 +146,7 @@ export default function SkuIndexLookupPage() {
         {!loading && !error && sellers.length > 0 && (
           <>
             {/* Summary */}
-            <Paper sx={{ p: 2, mb: 2 }}>
+            <Paper sx={{ p: 2, mb: 4, boxShadow: cardShadow }}>
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
                 {result.totalListings} listing{result.totalListings !== 1 ? 's' : ''} across{' '}
                 {result.sellerCount} seller{result.sellerCount !== 1 ? 's' : ''} for <b>{searchedTerm}</b>
@@ -192,7 +196,7 @@ export default function SkuIndexLookupPage() {
 
             {/* One block per seller */}
             {sellers.map((seller) => (
-              <Paper key={seller.sellerId} sx={{ mb: 2, overflow: 'hidden' }}>
+              <Paper key={seller.sellerId} sx={{ mb: 4, overflow: 'hidden', boxShadow: cardShadow }}>
                 <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <StorefrontIcon fontSize="small" color="action" />
                   <Typography variant="subtitle1" fontWeight={700} sx={{ flexGrow: 1 }}>
