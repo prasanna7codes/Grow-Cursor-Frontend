@@ -77,8 +77,12 @@ export default function ListingOverlaysPage() {
 
   // Stored snapshot state: { count, syncedAt } per seller id.
   const [snapshots, setSnapshots] = useState({});
-  const [syncing, setSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState({ page: 0, totalPages: 0, stored: 0 });
+  // Syncs running right now across ALL users, so nobody starts a duplicate.
+  const [activeSyncs, setActiveSyncs] = useState([]);
+  const [maxConcurrentSyncs, setMaxConcurrentSyncs] = useState(3);
+  // Sellers this browser has a sync stream open for. Live progress comes from
+  // the polled server status, which covers every user's syncs.
+  const [syncingSellerIds, setSyncingSellerIds] = useState(new Set());
   // Set when a result came from the in-memory crawl cache (live mode only).
   // Summary of the last submitted run, so Revert stays reachable after the
   // review panel closes.
@@ -107,14 +111,14 @@ export default function ListingOverlaysPage() {
   // you acted on the first match it found.
   const listingsEsRef = useRef(null);
   const previewEsRef = useRef(null);
-  const syncEsRef = useRef(null);
-  const syncDoneRef = useRef(false);
   // A stream that finished normally still trips onerror: the server ends the
   // response, and EventSource treats any close it did not initiate as a dropped
   // connection to retry. Without this the page reports "connection lost" on
   // every successful run. Tracked per stream for the same reason as the refs.
   const listingsDoneRef = useRef(false);
   const previewDoneRef = useRef(false);
+  // Sync results already announced, so polling does not repeat them.
+  const reportedSyncResults = useRef(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -130,7 +134,6 @@ export default function ListingOverlaysPage() {
     return () => {
       if (listingsEsRef.current) listingsEsRef.current.close();
       if (previewEsRef.current) previewEsRef.current.close();
-      if (syncEsRef.current) syncEsRef.current.close();
     };
   }, []);
 
@@ -142,81 +145,98 @@ export default function ListingOverlaysPage() {
           byId[s.sellerId] = { count: s.count, syncedAt: s.syncedAt };
         });
         setSnapshots(byId);
+
+        const running = data.activeSyncs || [];
+        setActiveSyncs(running);
+        if (data.maxConcurrentSyncs) setMaxConcurrentSyncs(data.maxConcurrentSyncs);
+
+        // The crawl outlives the request that started it, so completion is
+        // learned by polling rather than from a stream. Each result is reported
+        // once, tracked by finish time so a refresh does not replay it forever.
+        const runningIds = new Set(running.map((s) => s.sellerId));
+        setSyncingSellerIds((prev) => {
+          const next = new Set([...prev].filter((id) => runningIds.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
+
+        (data.recentSyncs || []).forEach((r) => {
+          if (reportedSyncResults.current.has(`${r.sellerId}:${r.finishedAt}`)) return;
+          reportedSyncResults.current.add(`${r.sellerId}:${r.finishedAt}`);
+
+          if (r.error) {
+            setError(`Sync failed: ${r.error}`);
+            return;
+          }
+          setSuccess(
+            `Stored ${(r.total || 0).toLocaleString()} listing${r.total === 1 ? '' : 's'}`
+            + (r.removed ? ` · removed ${r.removed} that had ended` : '')
+            + (r.partial ? ' · stopped early, so nothing was pruned' : '')
+            + '. Searches now run against this snapshot.'
+          );
+        });
       })
       .catch(() => {});
   };
 
   const snapshot = sellerId ? snapshots[sellerId] : null;
+  // Either the server reports it, or this browser just started it and the first
+  // poll has not landed yet.
+  const syncingThisSeller = activeSyncs.some((s) => s.sellerId === sellerId)
+    || syncingSellerIds.has(sellerId);
+  const atSyncLimit = activeSyncs.length >= maxConcurrentSyncs && !syncingThisSeller;
+  const thisSellerSync = activeSyncs.find((s) => s.sellerId === sellerId) || null;
 
-  const syncSnapshot = () => {
+  // Poll while anything is syncing so another user's run is visible here, and
+  // so a freed slot re-enables the button without a manual refresh.
+  useEffect(() => {
+    if (activeSyncs.length === 0 && syncingSellerIds.size === 0) return undefined;
+    const id = setInterval(refreshSnapshotStatus, 5000);
+    return () => clearInterval(id);
+  }, [activeSyncs.length, syncingSellerIds.size]);
+
+  const syncSnapshot = async () => {
     if (!sellerId) { setError('Select a seller first'); return; }
 
-    if (syncEsRef.current) syncEsRef.current.close();
-    syncDoneRef.current = false;
+    const startingSellerId = sellerId;
     setError('');
     setSuccess('');
-    setSyncProgress({ page: 0, totalPages: 0, stored: 0 });
-    setSyncing(true);
+    // Optimistic, so the banner reacts before the first poll lands.
+    setSyncingSellerIds((prev) => new Set(prev).add(startingSellerId));
 
-    const url = `${api.defaults.baseURL}/listing-overlays/snapshot/sync-stream`
-      + `?sellerId=${encodeURIComponent(sellerId)}`
-      + `&token=${encodeURIComponent(getAuthToken())}`;
+    try {
+      const { data } = await api.post('/listing-overlays/snapshot/sync', {
+        sellerId: startingSellerId,
+      });
+      setActiveSyncs(data.activeSyncs || []);
+      if (data.maxConcurrentSyncs) setMaxConcurrentSyncs(data.maxConcurrentSyncs);
+    } catch (err) {
+      // The server owns the concurrency rules; its 409/429 message is the one
+      // worth showing.
+      setSyncingSellerIds((prev) => {
+        const next = new Set(prev);
+        next.delete(startingSellerId);
+        return next;
+      });
+      setActiveSyncs(err.response?.data?.activeSyncs || []);
+      setError(err.response?.data?.error || 'Failed to start the sync');
+      return;
+    }
 
-    const es = new EventSource(url);
-    syncEsRef.current = es;
-
-    es.onmessage = (event) => {
-      if (event.data === '[DONE]') {
-        es.close();
-        syncEsRef.current = null;
-        setSyncing(false);
-        refreshSnapshotStatus();
-        return;
-      }
-
-      try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case 'progress':
-            setSyncProgress({ page: msg.page, totalPages: msg.totalPages, stored: msg.stored });
-            break;
-          case 'complete':
-            syncDoneRef.current = true;
-            setSuccess(
-              `Stored ${msg.total.toLocaleString()} listing${msg.total === 1 ? '' : 's'}`
-              + (msg.removed ? ` · removed ${msg.removed} that had ended` : '')
-              + (msg.partial ? ' · stopped early, so nothing was pruned' : '')
-              + '. Searches now run against this snapshot.'
-            );
-            break;
-          case 'error':
-            syncDoneRef.current = true;
-            setError(msg.error || 'Failed to sync listings');
-            break;
-          default:
-            break;
-        }
-      } catch {
-        // ignore malformed frame
-      }
-    };
-
-    es.onerror = () => {
-      es.close();
-      syncEsRef.current = null;
-      setSyncing(false);
-      refreshSnapshotStatus();
-      if (!syncDoneRef.current) setError('Connection lost while syncing listings.');
-    };
+    refreshSnapshotStatus();
   };
 
-  const stopSync = () => {
-    syncDoneRef.current = true;
-    if (syncEsRef.current) {
-      syncEsRef.current.close();
-      syncEsRef.current = null;
+  const stopSync = async (targetSellerId = sellerId) => {
+    try {
+      await api.post('/listing-overlays/snapshot/sync/stop', { sellerId: targetSellerId });
+      setSuccess('Stopping after the current page…');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to stop the sync');
     }
-    setSyncing(false);
+    setSyncingSellerIds((prev) => {
+      const next = new Set(prev);
+      next.delete(targetSellerId);
+      return next;
+    });
     refreshSnapshotStatus();
   };
 
@@ -643,6 +663,32 @@ export default function ListingOverlaysPage() {
           Pick a seller, then narrow the stored listings by category or keyword.
         </Typography>
 
+        {/* Every sync running right now, whoever started it. Shown before the
+            seller's own state so nobody queues a duplicate crawl or wonders why
+            the Sync button is disabled. */}
+        {activeSyncs.length > 0 && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+              {activeSyncs.length} of {maxConcurrentSyncs} sync slot{activeSyncs.length === 1 ? '' : 's'} in use
+            </Typography>
+            <Stack spacing={0.25}>
+              {activeSyncs.map((s) => (
+                <Typography key={s.sellerId} variant="caption" sx={{ display: 'block' }}>
+                  <strong>{s.sellerName || s.sellerId}</strong>
+                  {s.startedBy ? ` · started by ${s.startedBy}` : ''}
+                  {s.totalPages ? ` · page ${s.page} of ${s.totalPages}` : ''}
+                  {s.stored ? ` · ${s.stored.toLocaleString()} stored` : ''}
+                </Typography>
+              ))}
+            </Stack>
+            {atSyncLimit && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontWeight: 600 }}>
+                Limit reached — wait for one to finish before starting another.
+              </Typography>
+            )}
+          </Alert>
+        )}
+
         {/* Snapshot state for the selected seller — the searches below run
             against this, so its freshness is worth showing up front. */}
         {sellerId && (
@@ -651,11 +697,11 @@ export default function ListingOverlaysPage() {
             sx={{ mb: 2 }}
             action={
               <Stack direction="row" spacing={1}>
-                {syncing ? (
-                  isSuperAdmin && <Button size="small" onClick={stopSync}>Stop</Button>
+                {syncingThisSeller ? (
+                  isSuperAdmin && <Button size="small" onClick={() => stopSync(sellerId)}>Stop</Button>
                 ) : isSuperAdmin ? (
                   <>
-                    <Button size="small" onClick={syncSnapshot}>
+                    <Button size="small" onClick={syncSnapshot} disabled={atSyncLimit || syncingThisSeller}>
                       {snapshot ? 'Re-sync' : 'Sync listings from eBay'}
                     </Button>
                     {snapshot && (
@@ -668,8 +714,10 @@ export default function ListingOverlaysPage() {
               </Stack>
             }
           >
-            {syncing
-              ? `Syncing… ${syncProgress.totalPages ? `page ${syncProgress.page} of ${syncProgress.totalPages} · ` : ''}${syncProgress.stored.toLocaleString()} stored`
+            {syncingThisSeller
+              ? `Syncing… ${thisSellerSync?.totalPages
+                  ? `page ${thisSellerSync.page} of ${thisSellerSync.totalPages} · ${(thisSellerSync.stored || 0).toLocaleString()} stored`
+                  : 'starting'}`
               : snapshot
                 ? `${snapshot.count.toLocaleString()} listings stored · synced ${formatSyncedAgo(snapshot.syncedAt)}`
                 : isSuperAdmin
@@ -677,7 +725,7 @@ export default function ListingOverlaysPage() {
                   : 'No listings stored for this seller yet. Ask a superadmin to run the sync.'}
           </Alert>
         )}
-        {syncing && <LinearProgress sx={{ mb: 2 }} />}
+        {syncingThisSeller && <LinearProgress sx={{ mb: 2 }} />}
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }} flexWrap="wrap" useFlexGap>
           <Autocomplete
             sx={{ minWidth: 260 }}
@@ -718,7 +766,7 @@ export default function ListingOverlaysPage() {
           <Button
             variant="contained"
             startIcon={loadingListings ? <CircularProgress size={16} /> : <PlayIcon />}
-            disabled={!sellerId || loadingListings || syncing || !snapshot}
+            disabled={!sellerId || loadingListings || syncingThisSeller || !snapshot}
             onClick={() => loadListings()}
             sx={yellowFilledButtonSx}
           >
