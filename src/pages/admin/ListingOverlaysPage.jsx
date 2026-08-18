@@ -42,13 +42,6 @@ const ANCHORS = [
 ];
 
 export default function ListingOverlaysPage() {
-  // Re-syncing crawls a seller's whole inventory and Delete throws the snapshot
-  // away, so both stay with superadmins even though others may be granted the
-  // page itself. Enforced again server-side — see the route's role check.
-  const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
-  const isSuperAdmin = user?.role === 'superadmin';
-
   const [sellers, setSellers] = useState([]);
   const [sellerId, setSellerId] = useState('');
   const [badges, setBadges] = useState([]);
@@ -57,7 +50,7 @@ export default function ListingOverlaysPage() {
   const [anchor, setAnchor] = useState('bottom-right');
 
   const [listings, setListings] = useState([]);
-  // Filters are applied server-side as the crawl runs, so only matching
+  // Filters are applied server-side against the SKU index, so only matching
   // listings ever reach the browser.
   const [categoryQuery, setCategoryQuery] = useState('');
   const [keywordQuery, setKeywordQuery] = useState('');
@@ -75,15 +68,9 @@ export default function ListingOverlaysPage() {
 
   const [loadingListings, setLoadingListings] = useState(false);
 
-  // Stored snapshot state: { count, syncedAt } per seller id.
-  const [snapshots, setSnapshots] = useState({});
-  // Syncs running right now across ALL users, so nobody starts a duplicate.
-  const [activeSyncs, setActiveSyncs] = useState([]);
-  const [maxConcurrentSyncs, setMaxConcurrentSyncs] = useState(3);
-  // Sellers this browser has a sync stream open for. Live progress comes from
-  // the polled server status, which covers every user's syncs.
-  const [syncingSellerIds, setSyncingSellerIds] = useState(new Set());
-  // Set when a result came from the in-memory crawl cache (live mode only).
+  // Per-seller row counts and last sync time, read from SellerSkuIndex. This
+  // page no longer syncs anything itself — the daily SKU Index Sync owns that.
+  const [indexBySeller, setIndexBySeller] = useState({});
   // Summary of the last submitted run, so Revert stays reachable after the
   // review panel closes.
   const [lastRun, setLastRun] = useState(null);
@@ -105,10 +92,8 @@ export default function ListingOverlaysPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // The crawl and the preview get their own EventSource refs. Sharing one meant
-  // starting a preview closed the still-running crawl — and because the server
-  // stops paging when the client disconnects, a 127-page scan died the moment
-  // you acted on the first match it found.
+  // The search and the preview get their own EventSource refs. Sharing one
+  // meant starting a preview closed the still-running search stream.
   const listingsEsRef = useRef(null);
   const previewEsRef = useRef(null);
   // A stream that finished normally still trips onerror: the server ends the
@@ -117,8 +102,6 @@ export default function ListingOverlaysPage() {
   // every successful run. Tracked per stream for the same reason as the refs.
   const listingsDoneRef = useRef(false);
   const previewDoneRef = useRef(false);
-  // Sync results already announced, so polling does not repeat them.
-  const reportedSyncResults = useRef(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -129,7 +112,7 @@ export default function ListingOverlaysPage() {
       setBadges(badgeRes.data?.badges || []);
     }).catch(() => setError('Failed to load sellers or overlay badges'));
 
-    refreshSnapshotStatus();
+    refreshIndexStatus();
 
     return () => {
       if (listingsEsRef.current) listingsEsRef.current.close();
@@ -137,132 +120,19 @@ export default function ListingOverlaysPage() {
     };
   }, []);
 
-  const refreshSnapshotStatus = () => {
-    api.get('/listing-overlays/snapshot/status')
+  const refreshIndexStatus = () => {
+    api.get('/listing-overlays/index-status')
       .then(({ data }) => {
         const byId = {};
-        (data.snapshots || []).forEach((s) => {
-          byId[s.sellerId] = { count: s.count, syncedAt: s.syncedAt };
+        (data.sellers || []).forEach((row) => {
+          byId[row.sellerId] = { count: row.count, syncedAt: row.syncedAt };
         });
-        setSnapshots(byId);
-
-        const running = data.activeSyncs || [];
-        setActiveSyncs(running);
-        if (data.maxConcurrentSyncs) setMaxConcurrentSyncs(data.maxConcurrentSyncs);
-
-        // The crawl outlives the request that started it, so completion is
-        // learned by polling rather than from a stream. Each result is reported
-        // once, tracked by finish time so a refresh does not replay it forever.
-        const runningIds = new Set(running.map((s) => s.sellerId));
-        setSyncingSellerIds((prev) => {
-          const next = new Set([...prev].filter((id) => runningIds.has(id)));
-          return next.size === prev.size ? prev : next;
-        });
-
-        (data.recentSyncs || []).forEach((r) => {
-          if (reportedSyncResults.current.has(`${r.sellerId}:${r.finishedAt}`)) return;
-          reportedSyncResults.current.add(`${r.sellerId}:${r.finishedAt}`);
-
-          if (r.error) {
-            setError(`Sync failed: ${r.error}`);
-            return;
-          }
-          setSuccess(
-            `Stored ${(r.total || 0).toLocaleString()} listing${r.total === 1 ? '' : 's'}`
-            + (r.removed ? ` · removed ${r.removed} that had ended` : '')
-            + (r.partial ? ' · stopped early, so nothing was pruned' : '')
-            + '. Searches now run against this snapshot.'
-          );
-        });
+        setIndexBySeller(byId);
       })
       .catch(() => {});
   };
 
-  const snapshot = sellerId ? snapshots[sellerId] : null;
-  // Either the server reports it, or this browser just started it and the first
-  // poll has not landed yet.
-  const syncingThisSeller = activeSyncs.some((s) => s.sellerId === sellerId)
-    || syncingSellerIds.has(sellerId);
-  const atSyncLimit = activeSyncs.length >= maxConcurrentSyncs && !syncingThisSeller;
-  const thisSellerSync = activeSyncs.find((s) => s.sellerId === sellerId) || null;
-
-  // Poll while anything is syncing so another user's run is visible here, and
-  // so a freed slot re-enables the button without a manual refresh.
-  useEffect(() => {
-    if (activeSyncs.length === 0 && syncingSellerIds.size === 0) return undefined;
-    const id = setInterval(refreshSnapshotStatus, 5000);
-    return () => clearInterval(id);
-  }, [activeSyncs.length, syncingSellerIds.size]);
-
-  const syncSnapshot = async () => {
-    if (!sellerId) { setError('Select a seller first'); return; }
-
-    const startingSellerId = sellerId;
-    setError('');
-    setSuccess('');
-    // Optimistic, so the banner reacts before the first poll lands.
-    setSyncingSellerIds((prev) => new Set(prev).add(startingSellerId));
-
-    try {
-      const { data } = await api.post('/listing-overlays/snapshot/sync', {
-        sellerId: startingSellerId,
-      });
-      setActiveSyncs(data.activeSyncs || []);
-      if (data.maxConcurrentSyncs) setMaxConcurrentSyncs(data.maxConcurrentSyncs);
-    } catch (err) {
-      // The server owns the concurrency rules; its 409/429 message is the one
-      // worth showing.
-      setSyncingSellerIds((prev) => {
-        const next = new Set(prev);
-        next.delete(startingSellerId);
-        return next;
-      });
-      setActiveSyncs(err.response?.data?.activeSyncs || []);
-      setError(err.response?.data?.error || 'Failed to start the sync');
-      return;
-    }
-
-    refreshSnapshotStatus();
-  };
-
-  const stopSync = async (targetSellerId = sellerId) => {
-    try {
-      await api.post('/listing-overlays/snapshot/sync/stop', { sellerId: targetSellerId });
-      setSuccess('Stopping after the current page…');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to stop the sync');
-    }
-    setSyncingSellerIds((prev) => {
-      const next = new Set(prev);
-      next.delete(targetSellerId);
-      return next;
-    });
-    refreshSnapshotStatus();
-  };
-
-  const deleteSnapshot = async () => {
-    if (!sellerId) return;
-    try {
-      const { data } = await api.delete(`/listing-overlays/snapshot?sellerId=${encodeURIComponent(sellerId)}`);
-      setSuccess(`Deleted ${data.deletedCount.toLocaleString()} stored listing${data.deletedCount === 1 ? '' : 's'} for this seller.`);
-      setListings([]);
-      setSelectedIds(new Set());
-      refreshSnapshotStatus();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete snapshot');
-    }
-  };
-
-  // Ends the crawl early. A seller with 25k listings is 127 pages; once the
-  // matches you want are on screen there is no reason to wait for the rest.
-  const stopScan = () => {
-    listingsDoneRef.current = true;
-    if (listingsEsRef.current) {
-      listingsEsRef.current.close();
-      listingsEsRef.current = null;
-    }
-    setLoadingListings(false);
-  };
+  const sellerIndex = sellerId ? indexBySeller[sellerId] : null;
 
   // forceRefresh must be compared with === true: this is also used as an
   // onKeyDown/onClick handler, where the first argument is a DOM event.
@@ -307,7 +177,7 @@ export default function ListingOverlaysPage() {
             break;
           case 'complete': {
             listingsDoneRef.current = true;
-            if (msg.snapshotEmpty) {
+            if (msg.indexEmpty) {
               setError('No listings stored for this seller yet — run "Sync listings from eBay" first.');
               break;
             }
@@ -316,6 +186,9 @@ export default function ListingOverlaysPage() {
               `Matched ${msg.matched.toLocaleString()} of ${msg.scanned.toLocaleString()} stored listing${msg.scanned === 1 ? '' : 's'}.`
               + (msg.hiddenBadged > 0
                 ? ` ${msg.hiddenBadged} already badged and hidden.`
+                : '')
+              + (msg.hiddenEnded > 0
+                ? ` ${msg.hiddenEnded} ended and hidden.`
                 : '')
               + (msg.matched === 0 && !msg.hiddenBadged ? ' Try a broader category or keyword.' : '')
             );
@@ -340,6 +213,18 @@ export default function ListingOverlaysPage() {
       // Only a genuine drop is worth reporting; see listingsDoneRef.
       if (!listingsDoneRef.current) setError('Connection lost while loading listings.');
     };
+  };
+
+  // Ends the result stream early. The search is a database cursor now rather
+  // than an eBay crawl, but a seller with tens of thousands of indexed listings
+  // still streams for a few seconds and a broad search may be worth abandoning.
+  const stopScan = () => {
+    listingsDoneRef.current = true;
+    if (listingsEsRef.current) {
+      listingsEsRef.current.close();
+      listingsEsRef.current = null;
+    }
+    setLoadingListings(false);
   };
 
   const applyOverlay = () => {
@@ -467,9 +352,10 @@ export default function ListingOverlaysPage() {
 
       // Two kinds of row leave the table: the ones now carrying a live badge,
       // and the ones eBay says have ended. An ended listing can never be
-      // revised, so keeping it would mean re-picking a dead row every pass —
-      // the server prunes it from the snapshot for the same reason. Ordinary
-      // failures stay put, because those are worth retrying.
+      // revised, so keeping it would mean re-picking a dead row every pass.
+      // The server remembers it too, so it stays hidden on later searches —
+      // without deleting anything from the shared SKU index. Ordinary failures
+      // stay put, because those are worth retrying.
       const results = data.results || [];
       const removeIds = new Set(
         results
@@ -602,7 +488,7 @@ export default function ListingOverlaysPage() {
       </Snackbar>
 
       <Alert severity="info" sx={{ mb: 3 }}>
-        Searches run against a <strong>stored snapshot</strong> of the seller's listings. Applying an
+        Searches run against the <strong>SKU index</strong>, refreshed by the daily sync. Applying an
         overlay uploads the badged picture to eBay, but nothing on your live listings changes until you
         press <strong>Submit to eBay</strong>. Every run stores the original images and can be reverted.
       </Alert>
@@ -663,69 +549,16 @@ export default function ListingOverlaysPage() {
           Pick a seller, then narrow the stored listings by category or keyword.
         </Typography>
 
-        {/* Every sync running right now, whoever started it. Shown before the
-            seller's own state so nobody queues a duplicate crawl or wonders why
-            the Sync button is disabled. */}
-        {activeSyncs.length > 0 && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-              {activeSyncs.length} of {maxConcurrentSyncs} sync slot{activeSyncs.length === 1 ? '' : 's'} in use
-            </Typography>
-            <Stack spacing={0.25}>
-              {activeSyncs.map((s) => (
-                <Typography key={s.sellerId} variant="caption" sx={{ display: 'block' }}>
-                  <strong>{s.sellerName || s.sellerId}</strong>
-                  {s.startedBy ? ` · started by ${s.startedBy}` : ''}
-                  {s.totalPages ? ` · page ${s.page} of ${s.totalPages}` : ''}
-                  {s.stored ? ` · ${s.stored.toLocaleString()} stored` : ''}
-                </Typography>
-              ))}
-            </Stack>
-            {atSyncLimit && (
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontWeight: 600 }}>
-                Limit reached — wait for one to finish before starting another.
-              </Typography>
-            )}
-          </Alert>
-        )}
-
-        {/* Snapshot state for the selected seller — the searches below run
-            against this, so its freshness is worth showing up front. */}
+        {/* Index state for the selected seller. Read-only: this page searches
+            what the daily SKU Index Sync maintains rather than crawling eBay,
+            so freshness is reported but not controlled from here. */}
         {sellerId && (
-          <Alert
-            severity={snapshot ? 'success' : 'warning'}
-            sx={{ mb: 2 }}
-            action={
-              <Stack direction="row" spacing={1}>
-                {syncingThisSeller ? (
-                  isSuperAdmin && <Button size="small" onClick={() => stopSync(sellerId)}>Stop</Button>
-                ) : isSuperAdmin ? (
-                  <>
-                    <Button size="small" onClick={syncSnapshot} disabled={atSyncLimit || syncingThisSeller}>
-                      {snapshot ? 'Re-sync' : 'Sync listings from eBay'}
-                    </Button>
-                    {snapshot && (
-                      <Button size="small" color="warning" onClick={deleteSnapshot}>
-                        Delete
-                      </Button>
-                    )}
-                  </>
-                ) : null}
-              </Stack>
-            }
-          >
-            {syncingThisSeller
-              ? `Syncing… ${thisSellerSync?.totalPages
-                  ? `page ${thisSellerSync.page} of ${thisSellerSync.totalPages} · ${(thisSellerSync.stored || 0).toLocaleString()} stored`
-                  : 'starting'}`
-              : snapshot
-                ? `${snapshot.count.toLocaleString()} listings stored · synced ${formatSyncedAgo(snapshot.syncedAt)}`
-                : isSuperAdmin
-                  ? 'No listings stored for this seller yet. Sync once, then search as often as you like without re-crawling eBay.'
-                  : 'No listings stored for this seller yet. Ask a superadmin to run the sync.'}
+          <Alert severity={sellerIndex ? 'success' : 'warning'} sx={{ mb: 2 }}>
+            {sellerIndex
+              ? `${sellerIndex.count.toLocaleString()} listings indexed · synced ${formatSyncedAgo(sellerIndex.syncedAt)}`
+              : 'No listings indexed for this seller yet. They appear after the next SKU Index Sync.'}
           </Alert>
         )}
-        {syncingThisSeller && <LinearProgress sx={{ mb: 2 }} />}
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }} flexWrap="wrap" useFlexGap>
           <Autocomplete
             sx={{ minWidth: 260 }}
@@ -766,7 +599,7 @@ export default function ListingOverlaysPage() {
           <Button
             variant="contained"
             startIcon={loadingListings ? <CircularProgress size={16} /> : <PlayIcon />}
-            disabled={!sellerId || loadingListings || syncingThisSeller || !snapshot}
+            disabled={!sellerId || loadingListings || !sellerIndex}
             onClick={() => loadListings()}
             sx={yellowFilledButtonSx}
           >
@@ -799,9 +632,9 @@ export default function ListingOverlaysPage() {
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
           Keyword: <strong>phone case</strong> needs both words in the title (any order) ·{' '}
           <strong>strap,band</strong> matches either · <strong>apple strap,apple band</strong> combines the two.
-          Leave both boxes empty to return everything stored. Searches run against the synced snapshot, so
-          you can change keywords as often as you like without touching eBay — re-sync only when the
-          seller's listings have actually changed.
+          Leave both boxes empty to return every indexed listing. Searches read the SKU index, so you can
+          change keywords as often as you like without touching eBay. New listings appear after the next
+          daily sync.
         </Typography>
       </Paper>
 
