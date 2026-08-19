@@ -136,6 +136,7 @@ import ImportExportIcon from '@mui/icons-material/ImportExport';
 import LayersIcon from '@mui/icons-material/Layers';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 const ManageTemplatesPage = lazy(() => import('../pages/admin/ManageTemplatesPage.jsx'));
+const ListingOverlaysPage = lazy(() => import('../pages/admin/ListingOverlaysPage.jsx'));
 const TemplateListingsPage = lazy(() => import('../pages/admin/TemplateListingsPage.jsx'));
 const TemplateListingAnalyticsPage = lazy(() => import('../pages/admin/TemplateListingAnalyticsPage.jsx'));
 const SelectSellerPage = lazy(() => import('../pages/admin/SelectSellerPage.jsx'));
@@ -306,6 +307,7 @@ const COMPONENT_MAP = {
   'CompatibilityEditor': EditorDashboard,
   'AddCompatibilityEditor': AddListerPage,
   'ManageTemplates': ManageTemplatesPage,
+  'ListingOverlays': ListingOverlaysPage,
   'ListingsDatabase': TemplateDatabasePage,
   'SelectSeller': SelectSellerPage,
   'AsinPrecheck': AsinPrecheckPage,
