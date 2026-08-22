@@ -124,6 +124,7 @@ export const PAGE_REGISTRY = [
   { id: 'SkuIndexLookup', name: 'SKU / ASIN Lookup', path: '/sku-index-lookup', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'AmazonStockCheck', name: 'Amazon Stock Check', path: '/amazon-stock-check', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'SellerSkuStockCheck', name: 'Seller SKU Stock Check', path: '/seller-sku-stock-check', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
+  { id: 'ListingRevisions', name: 'Listing Revisions', path: '/listing-revisions', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'EndListingStats', name: 'End Listing Stats', path: '/end-listing-stats', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'EndListingByDate', name: 'End Listing By Date', path: '/end-listing-by-date', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'EndListingLookup', name: 'End Listing Lookup', path: '/end-listing-lookup', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
