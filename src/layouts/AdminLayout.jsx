@@ -170,6 +170,7 @@ import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import SecurityIcon from '@mui/icons-material/Security';
 
 const PageAccessManagementPage = lazy(() => import('../pages/admin/PageAccessManagementPage.jsx'));
+const PageAccessOverviewPage = lazy(() => import('../pages/admin/PageAccessOverviewPage.jsx'));
 const PageAccessAuditLogPage = lazy(() => import('../pages/admin/PageAccessAuditLogPage.jsx'));
 const UserPasswordManagementPage = lazy(() => import('../pages/admin/UserPasswordManagementPage.jsx'));
 const WelcomePage = lazy(() => import('../pages/admin/WelcomePage.jsx'));
@@ -372,6 +373,7 @@ const COMPONENT_MAP = {
   'ViewAllMessages': InternalMessagesAdminPage,
   'Attendance': AttendanceAdminPage,
   'PageAccessManagement': PageAccessManagementPage,
+  'PageAccessOverview': PageAccessOverviewPage,
   'PageAccessAuditLog': PageAccessAuditLogPage,
   'UserPasswordManagement': UserPasswordManagementPage,
   'ManageCategories': ManageCategoriesPage,
