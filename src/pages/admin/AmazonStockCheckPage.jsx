@@ -34,6 +34,8 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography
 } from '@mui/material';
@@ -54,6 +56,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
+import AsinReviewModal from '../../components/AsinReviewModal';
 import { BRAND_DARK } from '../../constants/brandTheme';
 
 const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
@@ -438,6 +441,15 @@ export default function AmazonStockCheckPage() {
   const [reviseTarget, setReviseTarget] = useState(null);
   const [reviseForm, setReviseForm] = useState({ title: '', price: '' });
   const [revising, setRevising] = useState(false);
+  // 'manual' keeps the original title/price-only revise; 'asin' repoints the
+  // listing at a new ASIN using a template, without changing the item ID.
+  const [reviseMode, setReviseMode] = useState('manual');
+  const [reviseAsin, setReviseAsin] = useState('');
+  const [reviseTemplateId, setReviseTemplateId] = useState('');
+  const [reviseTemplates, setReviseTemplates] = useState([]);
+  const [reviseTemplatesLoading, setReviseTemplatesLoading] = useState(false);
+  const [revisePreview, setRevisePreview] = useState(null);
+  const [reviseReviewOpen, setReviseReviewOpen] = useState(false);
 
   const [sellers, setSellers] = useState([]);
   const [sellerFilter, setSellerFilter] = useState(null);
@@ -712,6 +724,107 @@ export default function AmazonStockCheckPage() {
       title: sellerItem.title || '',
       price: sellerItem.price ?? ''
     });
+    setReviseMode('manual');
+    setReviseAsin('');
+    setRevisePreview(null);
+    setReviseReviewOpen(false);
+  };
+
+  // Only templates with ASIN automation switched on can generate listing
+  // content, so the picker never offers one that would fail on submit. Fetched
+  // once per page visit, on first open of the dialog, and sorted by name
+  // because the search box is only useful against a predictable order.
+  useEffect(() => {
+    if (!reviseTarget || reviseTemplates.length || reviseTemplatesLoading) return;
+    setReviseTemplatesLoading(true);
+    api.get('/listing-templates')
+      .then(({ data }) => {
+        const usable = (Array.isArray(data) ? data : [])
+          .filter((template) => template.asinAutomation?.enabled)
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setReviseTemplates(usable);
+        if (usable.length === 1) setReviseTemplateId(usable[0]._id);
+      })
+      .catch((err) => {
+        setReviseTemplates([]);
+        setError(err.response?.data?.error || 'Could not load templates for the revise dialog.');
+      })
+      .finally(() => setReviseTemplatesLoading(false));
+  }, [reviseTarget, reviseTemplates.length, reviseTemplatesLoading]);
+
+  const handleGenerateRevisePreview = async () => {
+    if (!reviseTarget) return;
+    setError('');
+    setSuccess('');
+    setRevising(true);
+    try {
+      const { data } = await api.post('/amazon-stock-checks/revise-listing/preview', {
+        sellerId: reviseTarget.sellerItem.sellerId,
+        itemId: reviseTarget.sellerItem.itemId,
+        asin: reviseAsin.trim().toUpperCase(),
+        templateId: reviseTemplateId,
+        currency: reviseTarget.sellerItem.currency || reviseTarget.item?.currency || 'USD'
+      });
+      // The review modal drops items it considers unsaveable, so a generation
+      // that failed validation has to be reported here — opening the modal
+      // would show a row whose Save button silently does nothing.
+      if (data.errors?.length) {
+        setError(`Could not generate a listing for ${data.asin}: ${data.errors.join('; ')}`);
+        return;
+      }
+      setRevisePreview(data);
+      setReviseReviewOpen(true);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to generate the revise preview');
+    } finally {
+      setRevising(false);
+    }
+  };
+
+  // AsinReviewModal hands back an array; this flow only ever has one item in it.
+  const handleApplyAsinRevise = async (listings) => {
+    if (!reviseTarget || !revisePreview) return;
+    const listing = listings?.[0];
+    if (!listing) {
+      setError('Nothing to revise — the generated listing was dismissed in the review.');
+      setReviseReviewOpen(false);
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    try {
+      const { data } = await api.post('/amazon-stock-checks/revise-listing/apply', {
+        sellerId: reviseTarget.sellerItem.sellerId,
+        itemId: reviseTarget.sellerItem.itemId,
+        asin: revisePreview.asin,
+        // From the preview, not the picker: the two must not drift.
+        templateId: revisePreview.templateId,
+        listing
+      });
+      setRevisedItems((prev) => ({
+        ...prev,
+        [reviseTarget.sellerItem.itemId]: {
+          revisedAt: new Date().toISOString(),
+          revisedBy: user?.username || user?.name || user?.email || 'you',
+          previousTitle: revisePreview.before?.title || '',
+          newTitle: listing.title || '',
+          previousPrice: revisePreview.before?.price ?? null,
+          newPrice: listing.startPrice != null && listing.startPrice !== '' ? Number(listing.startPrice) : null
+        }
+      }));
+      setReviseReviewOpen(false);
+      setRevisePreview(null);
+      setReviseTarget(null);
+      setSuccess(data.message || `Revised item ${reviseTarget.sellerItem.itemId}`);
+      if (activeRun?._id) await fetchRun(activeRun._id);
+    } catch (err) {
+      // Surfaced on the page rather than swallowed by the modal: when eBay
+      // accepted the revise but the row failed to save, the message is the only
+      // signal that the listing is live and needs reconciling.
+      setError(err.response?.data?.error || err.message || 'Failed to revise listing');
+      setReviseReviewOpen(false);
+    }
   };
 
   const handleReviseListing = async () => {
@@ -1702,36 +1815,156 @@ export default function AmazonStockCheckPage() {
         <DialogTitle>Revise Listing</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Title"
-              value={reviseForm.title}
-              onChange={(event) => setReviseForm((prev) => ({ ...prev, title: event.target.value }))}
-              inputProps={{ maxLength: 80 }}
-              helperText={`${reviseForm.title.length}/80 characters`}
+            <ToggleButtonGroup
+              size="small"
+              exclusive
               fullWidth
-            />
-            <TextField
-              label="Price"
-              type="number"
-              value={reviseForm.price}
-              onChange={(event) => setReviseForm((prev) => ({ ...prev, price: event.target.value }))}
-              fullWidth
-            />
+              value={reviseMode}
+              onChange={(event, next) => { if (next) setReviseMode(next); }}
+            >
+              <ToggleButton value="manual">Edit title &amp; price</ToggleButton>
+              <ToggleButton value="asin">Revise to a new ASIN</ToggleButton>
+            </ToggleButtonGroup>
+
+            {reviseMode === 'manual' ? (
+              <>
+                <TextField
+                  label="Title"
+                  value={reviseForm.title}
+                  onChange={(event) => setReviseForm((prev) => ({ ...prev, title: event.target.value }))}
+                  inputProps={{ maxLength: 80 }}
+                  helperText={`${reviseForm.title.length}/80 characters`}
+                  fullWidth
+                />
+                <TextField
+                  label="Price"
+                  type="number"
+                  value={reviseForm.price}
+                  onChange={(event) => setReviseForm((prev) => ({ ...prev, price: event.target.value }))}
+                  fullWidth
+                />
+              </>
+            ) : (
+              <>
+                <Alert severity="info" sx={{ '& .MuiAlert-message': { fontSize: 13 } }}>
+                  eBay item <strong>{reviseTarget?.sellerItem?.itemId}</strong> keeps its item ID. Its SKU,
+                  title, description, price, images and item specifics are replaced with the new ASIN&apos;s,
+                  and the new ASIN is saved as its own listing. The current details stay in the database.
+                </Alert>
+
+                <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Currently listed</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>{reviseTarget?.sellerItem?.title || '—'}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {reviseTarget?.item?.sku || reviseTarget?.sellerItem?.sku || '—'}
+                    {reviseTarget?.item?.asin ? ` · ${reviseTarget.item.asin}` : ''}
+                    {reviseTarget?.sellerItem?.price != null
+                      ? ` · ${reviseTarget.sellerItem.price} ${reviseTarget.sellerItem.currency || ''}`
+                      : ''}
+                  </Typography>
+                </Box>
+
+                <TextField
+                  label="Seller"
+                  value={reviseTarget?.sellerItem?.sellerName || ''}
+                  InputProps={{ readOnly: true }}
+                  helperText="Detected from the listing"
+                  fullWidth
+                />
+                <TextField
+                  label="New ASIN"
+                  value={reviseAsin}
+                  onChange={(event) => setReviseAsin(event.target.value.toUpperCase())}
+                  placeholder="B0XXXXXXXX"
+                  inputProps={{ maxLength: 10 }}
+                  fullWidth
+                />
+                {/* Autocomplete rather than a plain select: the template list
+                    runs to dozens of entries, and scrolling it to find one is
+                    the slow part of this dialog. */}
+                <Autocomplete
+                  options={reviseTemplates}
+                  loading={reviseTemplatesLoading}
+                  disabled={reviseTemplatesLoading || !reviseTemplates.length}
+                  value={reviseTemplates.find((template) => template._id === reviseTemplateId) || null}
+                  onChange={(event, next) => setReviseTemplateId(next?._id || '')}
+                  getOptionLabel={(option) => option?.name || ''}
+                  isOptionEqualToValue={(option, value) => option._id === value._id}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Template"
+                      placeholder="Type to search…"
+                      helperText={
+                        reviseTemplatesLoading
+                          ? 'Loading templates…'
+                          : (reviseTemplates.length
+                            ? 'Generates the eBay fields from this template'
+                            : 'No templates have ASIN automation enabled')
+                      }
+                    />
+                  )}
+                  fullWidth
+                />
+              </>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setReviseTarget(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleReviseListing}
-            disabled={revising}
-            startIcon={revising ? <CircularProgress size={16} color="inherit" /> : undefined}
-            sx={{ backgroundColor: BRAND_DARK }}
-          >
-            Save
-          </Button>
+          {reviseMode === 'manual' ? (
+            <Button
+              variant="contained"
+              onClick={handleReviseListing}
+              disabled={revising}
+              startIcon={revising ? <CircularProgress size={16} color="inherit" /> : undefined}
+              sx={{ backgroundColor: BRAND_DARK }}
+            >
+              Save
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={handleGenerateRevisePreview}
+              disabled={revising || reviseAsin.trim().length !== 10 || !reviseTemplateId}
+              startIcon={revising ? <CircularProgress size={16} color="inherit" /> : undefined}
+              sx={{ backgroundColor: BRAND_DARK }}
+            >
+              {revising ? 'Generating…' : 'Generate from ASIN'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
+
+      {/* Step two: the same review surface the ASIN Precheck flow uses, so a
+          revised listing is edited exactly like a newly listed one. */}
+      <AsinReviewModal
+        open={reviseReviewOpen}
+        onClose={() => setReviseReviewOpen(false)}
+        marketplace={revisePreview?.region || 'US'}
+        sellerId={reviseTarget?.sellerItem?.sellerId || null}
+        templateName={reviseTemplates.find((t) => t._id === reviseTemplateId)?.name || ''}
+        previewItems={revisePreview ? [{
+          id: `revise-${revisePreview.itemId}`,
+          asin: revisePreview.asin,
+          sku: revisePreview.newSku,
+          sourceData: revisePreview.sourceData,
+          generatedListing: { ...revisePreview.after, customLabel: revisePreview.newSku },
+          pricingCalculation: revisePreview.pricingCalculation,
+          warnings: revisePreview.warnings || [],
+          errors: revisePreview.errors || [],
+          progressStage: 'complete',
+          status: revisePreview.errors?.length ? 'error' : (revisePreview.warnings?.length ? 'warning' : 'success')
+        }] : []}
+        onSave={handleApplyAsinRevise}
+        templateColumns={[
+          ...(revisePreview?.templateColumns || []).map((col) => ({ ...col, type: 'custom' })),
+          { name: 'title', label: 'Title', type: 'core' },
+          { name: 'description', label: 'Description', type: 'core' },
+          { name: 'startPrice', label: 'Start Price', type: 'core' },
+          { name: 'quantity', label: 'Quantity', type: 'core' }
+        ]}
+      />
 
       <Dialog open={accessDialogOpen} onClose={() => setAccessDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Manage Estimate/Start Access</DialogTitle>
