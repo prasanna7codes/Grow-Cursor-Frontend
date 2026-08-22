@@ -50,6 +50,9 @@ export default function ListingOverlaysPage() {
   const [anchor, setAnchor] = useState('bottom-right');
 
   const [listings, setListings] = useState([]);
+  // Thumbnails fetched live from eBay for rows the index has no imageUrl for.
+  // Populated per visible page; goes quiet once the SKU sync stores them.
+  const [liveImages, setLiveImages] = useState({});
   // Filters are applied server-side against the SKU index, so only matching
   // listings ever reach the browser.
   const [categoryQuery, setCategoryQuery] = useState('');
@@ -59,7 +62,9 @@ export default function ListingOverlaysPage() {
   const [includeBadged, setIncludeBadged] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  // 100 matches LIVE_IMAGE_LIMIT on the server, so a full page of thumbnails is
+  // still covered by a single live-images request while imageUrl is unpopulated.
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   // Review step gets its own paging — the cards carry two images each, so a
   // few hundred previews would otherwise mount ~1,000 images at once.
   const [previewPage, setPreviewPage] = useState(0);
@@ -102,6 +107,8 @@ export default function ListingOverlaysPage() {
   // every successful run. Tracked per stream for the same reason as the refs.
   const listingsDoneRef = useRef(false);
   const previewDoneRef = useRef(false);
+  // Item ids already asked for, so paging back and forth does not refetch.
+  const requestedImageIds = useRef(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -145,6 +152,8 @@ export default function ListingOverlaysPage() {
     setSuccess('');
     setListings([]);
     setSelectedIds(new Set());
+    setLiveImages({});
+    requestedImageIds.current.clear();
     setPage(0);
     setPreviews([]);
     setRunId(null);
@@ -440,6 +449,33 @@ export default function ListingOverlaysPage() {
     [listings, page, rowsPerPage]
   );
 
+  // Only the rows on screen, and only those the index has no picture for. A
+  // seller whose sync has stored imageUrl never triggers this at all.
+  useEffect(() => {
+    if (!sellerId || pagedListings.length === 0) return;
+
+    const missing = pagedListings
+      .map((l) => String(l.itemId))
+      .filter((id) => !requestedImageIds.current.has(id))
+      .filter((id) => {
+        const row = pagedListings.find((l) => String(l.itemId) === id);
+        return row && !row.image;
+      });
+
+    if (missing.length === 0) return;
+    missing.forEach((id) => requestedImageIds.current.add(id));
+
+    api.post('/listing-overlays/live-images', { sellerId, itemIds: missing })
+      .then(({ data }) => {
+        if (data.images && Object.keys(data.images).length) {
+          setLiveImages((prev) => ({ ...prev, ...data.images }));
+        }
+      })
+      .catch(() => {
+        // Thumbnails are cosmetic — a failure must not disturb the table.
+      });
+  }, [pagedListings, sellerId]);
+
   // The header checkbox acts on the current page only — the table convention,
   // and the safe default when the alternative silently selects 1,200 live
   // listings. Selecting everything is a separate, explicit button.
@@ -724,7 +760,7 @@ export default function ListingOverlaysPage() {
                     />
                   </Tooltip>
                 </TableCell>
-                <TableCell sx={{ ...tableHeaderCellSx, width: 80 }}>Image</TableCell>
+                <TableCell sx={{ ...tableHeaderCellSx, width: 110 }}>Image</TableCell>
                 <TableCell sx={tableHeaderCellSx}>Title</TableCell>
                 <TableCell sx={tableHeaderCellSx}>SKU</TableCell>
                 <TableCell sx={tableHeaderCellSx}>Category</TableCell>
@@ -745,14 +781,15 @@ export default function ListingOverlaysPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    {l.image
-                      ? <Box component="img" src={l.image} alt="" sx={{ width: 48, height: 48, objectFit: 'contain' }} />
+                    {(l.image || liveImages[String(l.itemId)])
+                      ? <Box component="img" src={l.image || liveImages[String(l.itemId)]} alt="" loading="lazy"
+                          sx={{ width: 90, height: 90, objectFit: 'contain', borderRadius: 1 }} />
                       : <Typography variant="caption" color="text.secondary">—</Typography>}
                   </TableCell>
-                  <TableCell>
-                    <Tooltip title={l.title}>
-                      <Typography variant="body2" noWrap sx={{ maxWidth: 420 }}>{l.title}</Typography>
-                    </Tooltip>
+                  <TableCell sx={{ maxWidth: 560 }}>
+                    <Typography variant="body2" sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      {l.title}
+                    </Typography>
                   </TableCell>
                   <TableCell><Typography variant="caption">{l.sku || '—'}</Typography></TableCell>
                   <TableCell><Typography variant="caption">{l.categoryName || '—'}</Typography></TableCell>
