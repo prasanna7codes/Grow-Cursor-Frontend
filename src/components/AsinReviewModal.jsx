@@ -40,7 +40,9 @@ import {
   Visibility as VisibilityIcon,
   Update as UpdateIcon,
   Autorenew as AutorenewIcon,
-  InfoOutlined as InfoOutlinedIcon
+  InfoOutlined as InfoOutlinedIcon,
+  ContentCopy as CopyIcon,
+  DoneAll as DoneAllIcon
 } from '@mui/icons-material';
 import { Undo as UndoIcon } from '@mui/icons-material';
 import api from '../lib/api.js';
@@ -308,6 +310,8 @@ export default function AsinReviewModal({
   const [skuStatus, setSkuStatus] = useState({}); // { [itemId]: { status: 'loading'|'active'|'inactive'|null, count: number } }
   const [autoPriceAdjustments, setAutoPriceAdjustments] = useState({}); // { [itemId]: { from, to } }
   const [vehicleInputs, setVehicleInputs] = useState({}); // { [itemId]: string } — Steering Wheel Cover only
+  const [copyState, setCopyState] = useState({ status: 'idle', count: 0 }); // 'idle' | 'copied' | 'error'
+  const copyResetRef = useRef(null);
   const isSteeringWheelCover = templateName?.toLowerCase() === 'steering wheel cover';
 
   // Filter out dismissed items
@@ -344,6 +348,23 @@ export default function AsinReviewModal({
   const crossSellerSummary = getCrossSellerMatchSummary(currentSkuStatus, itemData);
   const currentAutoPriceAdjustment = currentItem?.id ? autoPriceAdjustments[currentItem.id] : null;
 
+  // ASINs still in the review queue (dismissed ones excluded), de-duplicated in review order.
+  const reviewAsins = [...new Set(activeItems.map(item => item.asin).filter(Boolean))];
+
+  const handleCopyReviewAsins = async () => {
+    if (reviewAsins.length === 0) return;
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+
+    try {
+      await navigator.clipboard.writeText(reviewAsins.join('\n'));
+      setCopyState({ status: 'copied', count: reviewAsins.length });
+    } catch {
+      setCopyState({ status: 'error', count: 0 });
+    }
+
+    copyResetRef.current = setTimeout(() => setCopyState({ status: 'idle', count: 0 }), 2000);
+  };
+
   // Reset modal-local session state only when the modal opens.
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
@@ -361,11 +382,17 @@ export default function AsinReviewModal({
       setStartPriceEditMode({});
       setSkuStatus({});
       setAutoPriceAdjustments({});
+      setCopyState({ status: 'idle', count: 0 });
       checkedSkuIdsRef.current = new Set();
     }
 
     wasOpenRef.current = open;
   }, [open, previewItems]);
+
+  // Clear the pending "copied" reset when the modal unmounts.
+  useEffect(() => () => {
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+  }, []);
 
   // Check each SKU as soon as its customLabel becomes available (items generate via SSE stream).
   // Uses a ref to ensure each item is only checked once even as editedItems keeps changing.
@@ -986,6 +1013,45 @@ export default function AsinReviewModal({
                 ↗ Amazon
               </Button>
             )}
+
+            <Tooltip
+              title={
+                copyState.status === 'copied'
+                  ? `Copied ${copyState.count} ASIN${copyState.count === 1 ? '' : 's'}`
+                  : copyState.status === 'error'
+                    ? 'Could not copy ASINs to clipboard'
+                    : `Copy the ${reviewAsins.length} ASIN${reviewAsins.length === 1 ? '' : 's'} still in this review`
+              }
+            >
+              <span>
+                {showAmazonPreview ? (
+                  <IconButton
+                    size="small"
+                    color={copyState.status === 'copied' ? 'success' : 'default'}
+                    onClick={handleCopyReviewAsins}
+                    disabled={reviewAsins.length === 0}
+                  >
+                    {copyState.status === 'copied'
+                      ? <DoneAllIcon fontSize="small" />
+                      : <CopyIcon fontSize="small" />}
+                  </IconButton>
+                ) : (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    color={copyState.status === 'copied' ? 'success' : 'primary'}
+                    startIcon={copyState.status === 'copied' ? <DoneAllIcon /> : <CopyIcon />}
+                    onClick={handleCopyReviewAsins}
+                    disabled={reviewAsins.length === 0}
+                    sx={{ whiteSpace: 'nowrap' }}
+                  >
+                    {copyState.status === 'copied'
+                      ? `Copied ${copyState.count}`
+                      : `Copy ASINs (${reviewAsins.length})`}
+                  </Button>
+                )}
+              </span>
+            </Tooltip>
 
             {currentItem?.asin && (
               <Button
