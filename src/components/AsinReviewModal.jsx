@@ -277,7 +277,15 @@ function buildDismissedReviewStats(previewItems = [], dismissedItems = new Set()
   });
 
   return {
-    dismissedByRunId: [...byRunId.values()]
+    dismissedByRunId: [...byRunId.values()],
+    // The ASINs behind those dismissals. When the batch came from an automated
+    // sourcing run, these are fed back so a later "find more" never offers an
+    // ASIN the operator has already rejected.
+    dismissedAsins: [...new Set(
+      previewItems
+        .filter(item => dismissedItems.has(item.id) && item.asin)
+        .map(item => String(item.asin).toUpperCase())
+    )]
   };
 }
 
@@ -309,6 +317,8 @@ export default function AsinReviewModal({
   const [startPriceEditMode, setStartPriceEditMode] = useState({}); // { [itemId]: true|false }
   const [skuStatus, setSkuStatus] = useState({}); // { [itemId]: { status: 'loading'|'active'|'inactive'|null, count: number } }
   const [autoPriceAdjustments, setAutoPriceAdjustments] = useState({}); // { [itemId]: { from, to } }
+  const [autoTitleAdjustments, setAutoTitleAdjustments] = useState({}); // { [itemId]: { from, to, attempts } }
+  const autoRephrasedIdsRef = useRef(new Set()); // one automatic attempt per item, ever
   const [vehicleInputs, setVehicleInputs] = useState({}); // { [itemId]: string } — Steering Wheel Cover only
   const [copyState, setCopyState] = useState({ status: 'idle', count: 0 }); // 'idle' | 'copied' | 'error'
   const copyResetRef = useRef(null);
@@ -347,6 +357,7 @@ export default function AsinReviewModal({
   const currentSkuStatus = currentItem?.id ? skuStatus[currentItem.id] : null;
   const crossSellerSummary = getCrossSellerMatchSummary(currentSkuStatus, itemData);
   const currentAutoPriceAdjustment = currentItem?.id ? autoPriceAdjustments[currentItem.id] : null;
+  const currentAutoTitleAdjustment = currentItem?.id ? autoTitleAdjustments[currentItem.id] : null;
 
   // ASINs still in the review queue (dismissed ones excluded), de-duplicated in review order.
   const reviewAsins = [...new Set(activeItems.map(item => item.asin).filter(Boolean))];
@@ -374,6 +385,8 @@ export default function AsinReviewModal({
       setEditedItems(buildInitialEditedItems(previewItems));
       setDismissedItems(new Set());
       setDismissHistory([]);
+      autoRephrasedIdsRef.current = new Set();
+      setAutoTitleAdjustments({});
       setSaving(false);
       setHasUnsavedChanges(false);
       setDescriptionViewMode('preview');
@@ -472,6 +485,98 @@ export default function AsinReviewModal({
       setHasUnsavedChanges(true);
     }
   }, [open, previewItems, skuStatus, editedItems]);
+
+  // Automatic title rephrase, the twin of the price adjustment above.
+  //
+  // A listing whose title matches a synced same-SKU listing from another seller
+  // is the thing the operator used to fix by hand on every item: click Rephrase,
+  // check the badge, repeat. The price half was already automatic; this closes
+  // the other half so review is only about judging the description.
+  //
+  // Guarded by a ref so each item is attempted at most once per open. A retry
+  // loop that re-fired whenever skuStatus or editedItems changed would spend AI
+  // credits in a cycle.
+  useEffect(() => {
+    if (!open) return;
+
+    previewItems.forEach(item => {
+      if (autoRephrasedIdsRef.current.has(item.id)) return;
+      if (dismissedItems.has(item.id)) return;
+      if (['error', 'loading', 'blocked'].includes(item.status)) return;
+
+      const status = skuStatus[item.id];
+      // Wait for the SKU check; 'loading' means we do not know yet.
+      if (!status || status.status === 'loading') return;
+
+      const records = [
+        ...(status.currentSellerMatches || []),
+        ...(status.otherSellerMatches || [])
+      ];
+      if (records.length === 0) {
+        autoRephrasedIdsRef.current.add(item.id);
+        return;
+      }
+
+      const listingData = editedItems[item.id] || item.generatedListing;
+      const currentTitle = listingData?.title;
+      if (!currentTitle) return;
+
+      const takenTitles = new Set(
+        records.map(record => normalizeComparableTitle(record.title)).filter(Boolean)
+      );
+      if (!takenTitles.has(normalizeComparableTitle(currentTitle))) {
+        autoRephrasedIdsRef.current.add(item.id);
+        return;
+      }
+
+      // Claim it before the await so a re-render cannot start a second run.
+      autoRephrasedIdsRef.current.add(item.id);
+
+      (async () => {
+        setRephrasing(prev => ({ ...prev, [item.id]: true }));
+        let candidate = currentTitle;
+
+        try {
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            const { data } = await api.post('/ai/rephrase-title', {
+              currentTitle: candidate,
+              sourceTitle: item.sourceData?.title || '',
+              brand: item.sourceData?.brand || '',
+              color: item.sourceData?.color || '',
+              compatibility: item.sourceData?.compatibility || ''
+            });
+
+            const next = (data?.rephrasedTitle || '').trim();
+            if (!next) continue;
+            candidate = next;
+
+            if (!takenTitles.has(normalizeComparableTitle(candidate))) {
+              setEditedItems(prev => ({
+                ...prev,
+                [item.id]: { ...(prev[item.id] || item.generatedListing || {}), title: candidate }
+              }));
+              setAutoTitleAdjustments(prev => ({
+                ...prev,
+                [item.id]: { from: currentTitle, to: candidate, attempts: attempt }
+              }));
+              setHasUnsavedChanges(true);
+              return;
+            }
+          }
+
+          // Three rewrites and still colliding. Leave the title as generated so
+          // the panel keeps showing the match, and let the operator decide.
+          console.warn(`[auto-rephrase] ${item.asin}: still matching after 3 attempts`);
+        } catch (error) {
+          // One AI failure must not break the batch; the manual button remains.
+          console.error('[auto-rephrase] failed:', error);
+        } finally {
+          setRephrasing(prev => ({ ...prev, [item.id]: false }));
+        }
+      })();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, previewItems, skuStatus, dismissedItems]);
 
   // Merge streamed/generated listings into the editable map without overwriting user edits.
   useEffect(() => {
@@ -1774,6 +1879,26 @@ export default function AsinReviewModal({
                             >
                               {isStartPriceEditing ? 'Save' : 'Edit'}
                             </Button>
+                            {currentAutoTitleAdjustment && (
+                              <Tooltip
+                                title={`Title was rephrased automatically because it matched another seller's listing with this SKU. Original: "${currentAutoTitleAdjustment.from}"`}
+                                placement="bottom"
+                                arrow
+                              >
+                                <Chip
+                                  label="Auto-rephrased"
+                                  size="small"
+                                  sx={{
+                                    height: 26,
+                                    fontWeight: 900,
+                                    bgcolor: '#e8f4fd',
+                                    color: '#0b5f8f',
+                                    border: '1px solid #64b5f6',
+                                    flexShrink: 0
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
                             {currentAutoPriceAdjustment && (
                               <Tooltip
                                 title={`Start price auto-increased from ${currentAutoPriceAdjustment.from} to ${currentAutoPriceAdjustment.to} because the original price matched another seller with this SKU.`}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { alpha, useTheme } from '@mui/material/styles';
 import {
@@ -42,6 +42,7 @@ import {
 } from '@mui/icons-material';
 import api, { getAuthToken } from '../../lib/api.js';
 import AdminPageShell from '../../components/AdminPageShell.jsx';
+import AsinSourcingPanel from '../../components/AsinSourcingPanel.jsx';
 import { BRAND_DARK, BRAND_YELLOW, BRAND_YELLOW_DARK } from '../../constants/brandTheme.js';
 import { dashboardSignatureTokens } from '../../theme/appTheme.js';
 import { tableHeaderCellSx, tableContainerSx, yellowFilledButtonSx, yellowOutlinedButtonSx } from '../../theme/tableStyles.js';
@@ -72,6 +73,9 @@ const DEFAULT_PREFERENCES = {
   templateId: '',
   region: 'US',
   ebayMotorsMode: false,
+  autoRun: true,
+  autoInactiveOnly: true,
+  keywordIntent: 'included',
   filters: DEFAULT_FILTERS
 };
 
@@ -85,6 +89,9 @@ const getSavedPrecheckPreferences = () => {
       templateId: saved.templateId || DEFAULT_PREFERENCES.templateId,
       region: saved.region || DEFAULT_PREFERENCES.region,
       ebayMotorsMode: Boolean(saved.ebayMotorsMode),
+      autoRun: saved.autoRun !== false,
+      autoInactiveOnly: saved.autoInactiveOnly !== false,
+      keywordIntent: saved.keywordIntent === 'excluded' ? 'excluded' : 'included',
       filters: {
         ...DEFAULT_FILTERS,
         ...(saved.filters || {})
@@ -160,7 +167,21 @@ export default function AsinPrecheckPage() {
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [filters, setFilters] = useState(savedPreferences.filters);
   const [keywordDraft, setKeywordDraft] = useState(savedPreferences.filters.keyword || '');
-  const [keywordIntent, setKeywordIntent] = useState('included');
+  const [keywordIntent, setKeywordIntent] = useState(savedPreferences.keywordIntent);
+  // Set when ASINs came from an automated sourcing run rather than a paste.
+  // Carried through to the review step so discards there can be fed back and
+  // never re-offered by a later top-up.
+  const [sourcingRunId, setSourcingRunId] = useState(null);
+  // When ASINs arrive from automated sourcing, carry straight through the
+  // precheck and into listing generation without stopping for a click. The
+  // precheck FILTERS still decide what survives — this skips the manual
+  // select-and-continue, not the checking.
+  const [autoRun, setAutoRun] = useState(savedPreferences.autoRun ?? true);
+  // Continuing an ASIN that already has a live listing just produces a
+  // duplicate_updateable in review — the manual flow uses "Select All Inactive"
+  // for exactly this reason, so the automatic path defaults to the same rule.
+  const [autoInactiveOnly, setAutoInactiveOnly] = useState(savedPreferences.autoInactiveOnly ?? true);
+  const autoRunPendingRef = useRef(false);
 
   const surfaceSx = {
     borderRadius: `${dashboardTheme.radius.card}px`,
@@ -218,12 +239,15 @@ export default function AsinPrecheckPage() {
         templateId,
         region,
         ebayMotorsMode,
+        autoRun,
+        autoInactiveOnly,
+        keywordIntent,
         filters
       }));
     } catch {
       // Local storage is a convenience only; the precheck flow can continue without it.
     }
-  }, [sellerId, templateId, region, ebayMotorsMode, filters, loadingSetup]);
+  }, [sellerId, templateId, region, ebayMotorsMode, autoRun, autoInactiveOnly, keywordIntent, filters, loadingSetup]);
 
   const getFilteredRows = (sourceRows, options = {}) => {
     const keyword = (options.keyword ?? filters.keyword).trim().toLowerCase();
@@ -324,9 +348,13 @@ export default function AsinPrecheckPage() {
     )));
   };
 
-  const runPrecheck = () => {
-    const asins = parseSetupAsins();
-    const stats = getParsingStats(asinInput);
+  const runPrecheck = (asinsOverride = null) => {
+    // Sourcing calls this with the ASINs it just found: setAsinInput has not
+    // flushed yet at that point, so reading state here would check nothing.
+    const asins = Array.isArray(asinsOverride) ? asinsOverride : parseSetupAsins();
+    const stats = Array.isArray(asinsOverride)
+      ? { invalid: 0 }
+      : getParsingStats(asinInput);
 
     setError('');
     setSuccess('');
@@ -482,16 +510,20 @@ export default function AsinPrecheckPage() {
     setSelectedIds(new Set(nextRows.map(row => row.id)));
   };
 
+  // eBay Motors mode overrides an include: a row the marketplace will not accept
+  // cannot be listed however it was selected. Shared by the manual buttons and
+  // the automatic path so the toggle behaves identically in both.
+  const resolveIntent = (row, intent) => (
+    row.ebayMotorsMode && row.ebayMotorsEligible === false && intent === 'included'
+      ? 'excluded'
+      : intent
+  );
+
   const setRowIntent = (rowIds, intent) => {
     const idSet = new Set(rowIds);
     setRows(prev => prev.map(row => (
       idSet.has(row.id)
-        ? {
-            ...row,
-            intent: row.ebayMotorsMode && row.ebayMotorsEligible === false && intent === 'included'
-              ? 'excluded'
-              : intent
-          }
+        ? { ...row, intent: resolveIntent(row, intent) }
         : row
     )));
   };
@@ -514,11 +546,43 @@ export default function AsinPrecheckPage() {
     setKeywordIntent('included');
   };
 
+  // Tell the sourcing run which ASINs were thrown away, so "find more" never
+  // offers them again. Fire-and-forget: a failure here must not block a discard.
+  const reportDiscardedAsins = (asins) => {
+    if (!sourcingRunId || asins.length === 0) return;
+    api.post(`/asin-sourcing/${sourcingRunId}/discard`, { asins })
+      .catch(err => console.error('Failed to record discarded ASINs:', err));
+  };
+
   const discardSelected = () => {
     if (selectedIds.size === 0) return;
+    reportDiscardedAsins(selectedRows.map(row => row.asin));
     setRows(prev => prev.filter(row => !selectedIds.has(row.id)));
     setSelectedIds(new Set());
     setDiscardConfirmOpen(false);
+  };
+
+  // Sourced ASINs go into the same box a paste would, so everything after this
+  // point — precheck, review, save, CSV — is unchanged.
+  const handleAsinsFound = (asins, { runId }) => {
+    setSourcingRunId(runId);
+    setAsinInput(prev => {
+      const existing = new Set(parseAsins(prev));
+      const added = asins.filter(asin => !existing.has(asin));
+      return [...parseAsins(prev), ...added].join('\n');
+    });
+
+    if (autoRun) {
+      // Straight through: precheck now, then hand off to generation as soon as
+      // it finishes. The ASINs are passed explicitly because setAsinInput above
+      // has not flushed yet.
+      autoRunPendingRef.current = true;
+      setSuccess(`Sourced ${asins.length} ASIN${asins.length === 1 ? '' : 's'} - running precheck`);
+      runPrecheck(asins);
+      return;
+    }
+
+    setSuccess(`Added ${asins.length} sourced ASIN${asins.length === 1 ? '' : 's'}`);
   };
 
   const copySelectedAsins = async () => {
@@ -533,11 +597,23 @@ export default function AsinPrecheckPage() {
     }
   };
 
-  const continueToAddListings = () => {
-    const asins = finalRows.map(row => row.asin);
+  // Hand a set of ASINs to the listing generator. Shared by the Continue button
+  // and by the automatic path, so both produce an identical handoff.
+  const handOffToListings = (asins) => {
     if (asins.length === 0) {
       setError('Select or include at least one non-excluded ASIN to continue');
       return;
+    }
+
+    // Record what actually survived the filters against the sourcing run, so a
+    // run can be audited for how many of the ASINs it bought were usable.
+    // Fire-and-forget: this must never block a hand-off.
+    if (sourcingRunId) {
+      api.post(`/asin-sourcing/${sourcingRunId}/continued`, {
+        asins,
+        served: rows.length,
+        dropped: summariseDrops(rows, asins)
+      }).catch(err => console.error('Failed to record continued ASINs:', err));
     }
 
     const nonce = `${Date.now()}`;
@@ -547,6 +623,7 @@ export default function AsinPrecheckPage() {
       asins,
       region,
       nonce,
+      sourcingRunId,
       createdAt: Date.now()
     }));
 
@@ -556,6 +633,104 @@ export default function AsinPrecheckPage() {
     setAsinInput('');
     navigate(`/admin/template-listings?templateId=${templateId}&sellerId=${sellerId}&fromAsinPrecheck=${nonce}`);
   };
+
+  const continueToAddListings = () => handOffToListings(finalRows.map(row => row.asin));
+
+  // Everything that survives the precheck filters, without needing a manual
+  // selection first. Same rules the Continue button applies to finalRows:
+  // complete, not excluded, and eBay Motors eligible when that mode is on.
+  const autoEligibleAsins = (sourceRows) => getFilteredRows(sourceRows)
+    .filter(row => (
+      isRowComplete(row)
+      && row.intent !== 'excluded'
+      // eBay Motors mode drops anything the marketplace will not take, exactly
+      // as including a row by hand would.
+      && !(row.ebayMotorsMode && row.ebayMotorsEligible === false)
+      // Only inactive ASINs. An active one already has a live listing, so
+      // continuing it generates a duplicate_updateable instead of a new listing.
+      && (!autoInactiveOnly || row.active !== true)
+    ))
+    .map(row => row.asin);
+
+  // Why a row did not make it through to generation. Tested in the order the
+  // filters are actually decided so each drop is attributed to one cause, and
+  // sourcing can be told what its batch turned into: a full batch that yields
+  // few listings is a different problem from a batch that came back short, and
+  // the two need opposite fixes.
+  const classifyDroppedRow = (row) => {
+    if (!isRowComplete(row)) return 'error';
+    if (row.intent === 'excluded') return 'excluded';
+    if (row.ebayMotorsMode && row.ebayMotorsEligible === false) return 'motors';
+    if (autoInactiveOnly && row.active === true) return 'active';
+
+    const keyword = (filters.keyword || '').trim().toLowerCase();
+    if (keyword && ![row.title, row.brand].some(v => String(v || '').toLowerCase().includes(keyword))) {
+      return 'keyword';
+    }
+    if (filters.priceFrom !== '' && !(Number(row.priceNumber) >= Number(filters.priceFrom))) return 'price';
+    if (filters.priceTo !== '' && !(Number(row.priceNumber) <= Number(filters.priceTo))) return 'price';
+    if (filters.minRating !== '' && !(Number(row.rating) >= Number(filters.minRating))) return 'rating';
+    if (filters.deliveryWithinDays !== '' && !(Number(row.deliveryDays) <= Number(filters.deliveryWithinDays))) return 'delivery';
+    if (filters.stock === 'in_stock' && row.inStock !== true) return 'stock';
+    if (filters.stock === 'out_of_stock' && row.inStock !== false) return 'stock';
+    if (filters.active === 'active' && row.active !== true) return 'active';
+    if (filters.active === 'inactive' && row.active !== false) return 'active';
+
+    return 'other';
+  };
+
+  const summariseDrops = (sourceRows, keptAsins) => {
+    const kept = new Set(keptAsins);
+    const dropped = {};
+    sourceRows
+      .filter(row => !kept.has(row.asin))
+      .forEach(row => {
+        const reason = classifyDroppedRow(row);
+        dropped[reason] = (dropped[reason] || 0) + 1;
+      });
+    return dropped;
+  };
+
+  // The automatic hand-off. Waits for the stream to finish AND for every row to
+  // settle, because a row still loading has no price or stock to filter on yet.
+  useEffect(() => {
+    if (!autoRunPendingRef.current) return;
+    if (running || rows.length === 0) return;
+    if (rows.some(row => row.status === 'loading')) return;
+
+    autoRunPendingRef.current = false;
+
+    // Apply the saved keyword include/exclude, exactly as pressing Apply would.
+    // Without this the automatic path would ignore a rule the operator had set
+    // up and expects to be in force on every batch.
+    const keyword = (filters.keyword || '').trim();
+    let settledRows = rows;
+
+    if (keyword) {
+      const matchedIds = new Set(
+        getFilteredRows(rows, { ...filters, keyword, focusIncluded: false })
+          .filter(isRowComplete)
+          .map(row => row.id)
+      );
+
+      if (matchedIds.size > 0) {
+        settledRows = rows.map(row => (
+          matchedIds.has(row.id) ? { ...row, intent: resolveIntent(row, keywordIntent) } : row
+        ));
+        setRows(settledRows);
+      }
+    }
+
+    const asins = autoEligibleAsins(settledRows);
+    if (asins.length === 0) {
+      const inactiveNote = autoInactiveOnly ? ' Only inactive ASINs are continued.' : '';
+      setError(`None of the sourced ASINs passed the precheck filters.${inactiveNote} Widen the filters or source more.`);
+      return;
+    }
+
+    handOffToListings(asins);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, rows]);
 
   const visibleCompletedRows = visibleRows.filter(isRowComplete);
   const allVisibleSelected = visibleCompletedRows.length > 0 && visibleCompletedRows.every(row => selectedIds.has(row.id));
@@ -1146,6 +1321,21 @@ export default function AsinPrecheckPage() {
                   }}
                 />
 
+                <AsinSourcingPanel
+                  sellerId={sellerId}
+                  templateId={templateId}
+                  region={region}
+                  disabled={running}
+                  autoRun={autoRun}
+                  onAutoRunChange={setAutoRun}
+                  inactiveOnly={autoInactiveOnly}
+                  onInactiveOnlyChange={setAutoInactiveOnly}
+                  priceMin={filters.priceFrom}
+                  priceMax={filters.priceTo}
+                  minRating={filters.minRating}
+                  onAsinsFound={handleAsinsFound}
+                />
+
                 <TextField
                   label="ASINs"
                   value={asinInput}
@@ -1153,7 +1343,7 @@ export default function AsinPrecheckPage() {
                   multiline
                   minRows={8}
                   fullWidth
-                  placeholder="Paste ASINs here"
+                  placeholder="Paste ASINs here, or use Find ASINs above"
                 />
               </>
             )}

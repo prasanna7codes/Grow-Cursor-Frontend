@@ -152,6 +152,9 @@ export default function TemplateListingsPage() {
   // Template customization dialog state
   const [customizationDialog, setCustomizationDialog] = useState(false);
   
+  // Set when this batch came from an automated ASIN sourcing run.
+  const [sourcingRunId, setSourcingRunId] = useState(null);
+
   // ASIN Review Modal state
   const [reviewModal, setReviewModal] = useState(false);
   const [previewItems, setPreviewItems] = useState([]);
@@ -1071,6 +1074,9 @@ export default function TemplateListingsPage() {
       sessionStorage.removeItem('asinPrecheckHandoff');
       setAsinInput(handoffAsins.join('\n'));
       if (handoff.region) setRegion(handoff.region);
+      // Present when the batch came from automated sourcing rather than a
+      // paste - lets review-time discards feed back into that run.
+      setSourcingRunId(handoff.sourcingRunId || null);
       handleBulkAutofill(handoffAsins, handoff.region, true);
     } catch (handoffError) {
       console.error('Failed to read ASIN precheck handoff:', handoffError);
@@ -1113,6 +1119,13 @@ export default function TemplateListingsPage() {
   const handleSaveFromReview = async (listings, reviewStats = {}) => {
     setLoading(true);
     setError('');
+
+    // Feed discards back to the sourcing run so a later top-up skips them.
+    // Fire-and-forget: this must never be able to fail a save.
+    if (sourcingRunId && reviewStats.dismissedAsins?.length > 0) {
+      api.post(`/asin-sourcing/${sourcingRunId}/discard`, { asins: reviewStats.dismissedAsins })
+        .catch(err => console.error('Failed to record discarded ASINs:', err));
+    }
     setSuccess('');
 
     try {
