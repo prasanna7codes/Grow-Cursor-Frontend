@@ -1266,10 +1266,19 @@ const FeedUploadPage = () => {
                 maxWidth="sm"
                 fullWidth
             >
+                {/* Three outcomes reach this dialog, not two. `rehosted` has to be
+                    checked before falling through to the expiry wording, because a
+                    file where nothing could be rebuilt opens on the warnings alone —
+                    and it does so with foreign at 0, since ensureImagesForSeller()
+                    warns and moves on for a picture with no ledger row BEFORE it
+                    counts that picture as foreign. Announcing a re-upload there
+                    would name the one thing that did not happen. */}
                 <DialogTitle>
                     {imageNotice?.foreign > 0
                         ? 'Pictures were copied to this seller'
-                        : 'Expired pictures were re-uploaded'}
+                        : imageNotice?.rehosted > 0
+                            ? 'Expired pictures were re-uploaded'
+                            : 'Some pictures could not be prepared'}
                 </DialogTitle>
 
                 <DialogContent>
