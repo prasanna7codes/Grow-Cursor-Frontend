@@ -1266,19 +1266,25 @@ const FeedUploadPage = () => {
                 maxWidth="sm"
                 fullWidth
             >
-                {/* Three outcomes reach this dialog, not two. `rehosted` has to be
-                    checked before falling through to the expiry wording, because a
-                    file where nothing could be rebuilt opens on the warnings alone —
-                    and it does so with foreign at 0, since ensureImagesForSeller()
-                    warns and moves on for a picture with no ledger row BEFORE it
-                    counts that picture as foreign. Announcing a re-upload there
-                    would name the one thing that did not happen. */}
+                {/* Titled by what HAPPENED, with ownership only qualifying it.
+                    Neither count can carry the title alone:
+
+                    `rehosted` is 0 whenever nothing could be rebuilt, and the
+                    dialog still opens on the warnings — a picture with no ledger
+                    row is warned about and skipped, so foreign stays 0 there too.
+
+                    `foreign` is counted BEFORE the rebuild is attempted, and three
+                    paths after that point can still fail (missing badge, a refused
+                    upload, a thrown error). So foreign can be non-zero with nothing
+                    actually copied.
+
+                    Leading on `rehosted` covers both: no rebuild, no claim of one. */}
                 <DialogTitle>
-                    {imageNotice?.foreign > 0
-                        ? 'Pictures were copied to this seller'
-                        : imageNotice?.rehosted > 0
-                            ? 'Expired pictures were re-uploaded'
-                            : 'Some pictures could not be prepared'}
+                    {imageNotice?.rehosted > 0
+                        ? imageNotice.foreign > 0
+                            ? 'Pictures were copied to this seller'
+                            : 'Expired pictures were re-uploaded'
+                        : 'Some pictures could not be prepared'}
                 </DialogTitle>
 
                 <DialogContent>
@@ -1291,12 +1297,21 @@ const FeedUploadPage = () => {
                             </Typography>
                         )}
 
+                        {/* "in this file", not "of them" — the sentence above only
+                            renders when something was rebuilt, so a back-reference
+                            would dangle on the failure path. The counts differ too:
+                            a partly-failed batch has more foreign pictures than
+                            rebuilt ones, and "6 of them" under a heading saying 3
+                            reads as a contradiction. */}
                         {imageNotice?.foreign > 0 && (
                             <Typography variant="body2" sx={{ mb: 1.5 }}>
-                                {imageNotice.foreign} of them belonged to a <strong>different seller's
-                                account</strong> — this CSV was exported for someone else. They have been
-                                copied into this seller's account so the two listings stay independent.
-                                If you meant to upload under a different seller, check the account above.
+                                {imageNotice.foreign} picture{imageNotice.foreign === 1 ? '' : 's'} in this
+                                file belonged to a <strong>different seller's account</strong> — it was
+                                exported for someone else.
+                                {imageNotice.rehosted > 0
+                                    ? ' Copies have been made under this seller so the listings stay independent.'
+                                    : ' They could not be copied under this seller — see below.'}
+                                {' '}If you meant to upload under a different seller, check the account above.
                             </Typography>
                         )}
 
