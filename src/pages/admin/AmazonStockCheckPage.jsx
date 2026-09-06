@@ -1944,6 +1944,7 @@ export default function AmazonStockCheckPage() {
         marketplace={revisePreview?.region || 'US'}
         sellerId={reviseTarget?.sellerItem?.sellerId || null}
         templateName={reviseTemplates.find((t) => t._id === reviseTemplateId)?.name || ''}
+        templateId={reviseTemplateId || null}
         previewItems={revisePreview ? [{
           id: `revise-${revisePreview.itemId}`,
           asin: revisePreview.asin,
