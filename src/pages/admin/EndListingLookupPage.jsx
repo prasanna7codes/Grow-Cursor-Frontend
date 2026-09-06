@@ -14,6 +14,7 @@ const SOURCE_META = {
   duplicate_sku:      { label: 'Duplicate SKU',      color: 'primary' },
   expiry_listing:     { label: 'Expiry Listing',     color: 'warning' },
   amazon_stock_check: { label: 'Amazon Stock Check',  color: 'info' },
+  sku_listing_manager: { label: 'SKU Listing Manager', color: 'secondary' },
 };
 
 const countryLabel = (country) => {
