@@ -2912,6 +2912,7 @@ export default function TemplateListingsPage() {
         marketplace={region}
         sellerId={sellerId}
         templateName={template?.name}
+        templateId={templateId}
         onClose={() => {
           // Clean up EventSource if still active
           if (window._currentEventSource) {
