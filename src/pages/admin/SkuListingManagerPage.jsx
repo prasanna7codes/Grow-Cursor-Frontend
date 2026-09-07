@@ -46,20 +46,33 @@ const AMAZON_DOMAINS = { USD: 'com', AUD: 'com.au', CAD: 'ca', GBP: 'co.uk' };
 // populated instead of filing these ends under "Unknown".
 const END_LISTING_COUNTRIES = { USD: 'US', GBP: 'UK', AUD: 'AU', CAD: 'Canada' };
 
-// One tint per seller block, cycled by position. A popular SKU stacks a dozen
-// sellers down the page and every card used to be white on white, so the eye
-// had nothing to anchor on when scanning from one seller's last listing to the
-// next seller's first. Hues are kept far enough apart that neighbours never
-// read as the same colour, and pale enough that the white listing rows sitting
-// on top of them stay the thing you actually look at.
-const SELLER_TINTS = [
-  { accent: '#3b82f6', header: '#eff6ff', body: '#f8fbff', border: '#bfdbfe' }, // blue
-  { accent: '#f59e0b', header: '#fffbeb', body: '#fffdf5', border: '#fde68a' }, // amber
-  { accent: '#10b981', header: '#ecfdf5', body: '#f6fefb', border: '#a7f3d0' }, // green
-  { accent: '#8b5cf6', header: '#f5f3ff', body: '#faf9ff', border: '#ddd6fe' }, // violet
-  { accent: '#f43f5e', header: '#fff1f2', body: '#fff8f8', border: '#fecdd3' }, // rose
-  { accent: '#06b6d4', header: '#ecfeff', body: '#f7feff', border: '#a5f3fc' }  // cyan
+// Seller blocks alternate between plain white and light grey. A popular SKU
+// stacks a dozen sellers down the page, and with every card white on white the
+// eye had nothing to anchor on when scanning from one seller's last listing to
+// the next seller's first. Two neutral bands fix that without colouring the
+// page — the listing rows stay white on both, so the data keeps the contrast.
+const SELLER_BANDS = [
+  { accent: '#94a3b8', header: '#f8fafc', body: '#ffffff', border: '#cbd5e1' }, // white band
+  { accent: '#334155', header: '#e2e8f0', body: '#eef2f6', border: '#94a3b8' }  // grey band
 ];
+
+// The 90-day count is the number you actually decide on, so it leads: heavier
+// and a size up. Lifetime is background context and is stepped down rather than
+// left competing with it at the same weight.
+const ORDERS_90D_CHIP_SX = {
+  fontWeight: 900,
+  fontSize: '0.85rem',
+  height: 26,
+  '& .MuiChip-label': { px: 1.25 }
+};
+const LIFETIME_CHIP_SX = {
+  fontWeight: 600,
+  fontSize: '0.68rem',
+  height: 20,
+  color: 'text.secondary',
+  borderColor: 'divider',
+  '& .MuiChip-label': { px: 0.75 }
+};
 
 function amazonUrl(asin, currency) {
   const domain = AMAZON_DOMAINS[String(currency || '').toUpperCase()] || 'com';
@@ -542,13 +555,13 @@ export default function SkuListingManagerPage() {
                 size="small"
                 color={result.totals?.orderCount90d > 0 ? 'warning' : 'default'}
                 label={`${formatNumber(result.totals?.orderCount90d)} orders / 90d`}
-                sx={{ fontWeight: 800 }}
+                sx={ORDERS_90D_CHIP_SX}
               />
               <Chip
                 size="small"
                 variant="outlined"
                 label={`${formatNumber(result.totals?.lifetimeOrderCount)} lifetime`}
-                sx={{ fontWeight: 800 }}
+                sx={LIFETIME_CHIP_SX}
               />
             </Stack>
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
@@ -589,7 +602,7 @@ export default function SkuListingManagerPage() {
           {sellers.map((seller, sellerIndex) => {
             const selectable = seller.listings.filter((row) => !isEnded(row));
             const allSelected = selectable.length > 0 && selectable.every((row) => selectedRows.has(row.itemId));
-            const tint = SELLER_TINTS[sellerIndex % SELLER_TINTS.length];
+            const band = SELLER_BANDS[sellerIndex % SELLER_BANDS.length];
             return (
               <Paper
                 key={seller.sellerId}
@@ -598,9 +611,9 @@ export default function SkuListingManagerPage() {
                   mb: 2.5,
                   borderRadius: 2,
                   overflow: 'hidden',
-                  bgcolor: tint.body,
-                  borderColor: tint.border,
-                  borderLeft: `5px solid ${tint.accent}`
+                  bgcolor: band.body,
+                  borderColor: band.border,
+                  borderLeft: `5px solid ${band.accent}`
                 }}
               >
                 <Stack
@@ -609,7 +622,7 @@ export default function SkuListingManagerPage() {
                   alignItems="center"
                   flexWrap="wrap"
                   useFlexGap
-                  sx={{ px: 1.5, py: 1.25, bgcolor: tint.header }}
+                  sx={{ px: 1.5, py: 1.25, bgcolor: band.header }}
                 >
                   {canAct && (
                     <Checkbox
@@ -621,7 +634,7 @@ export default function SkuListingManagerPage() {
                       onChange={() => toggleSelectSeller(seller)}
                     />
                   )}
-                  <StorefrontIcon fontSize="small" sx={{ color: tint.accent }} />
+                  <StorefrontIcon fontSize="small" color="action" />
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{seller.sellerName}</Typography>
                   <Chip
                     size="small"
@@ -634,13 +647,13 @@ export default function SkuListingManagerPage() {
                     size="small"
                     color={seller.orderCount90d > 0 ? 'warning' : 'default'}
                     label={`${formatNumber(seller.orderCount90d)} / 90d`}
-                    sx={{ fontWeight: 800 }}
+                    sx={ORDERS_90D_CHIP_SX}
                   />
                   <Chip
                     size="small"
                     variant="outlined"
                     label={`${formatNumber(seller.lifetimeOrderCount)} lifetime`}
-                    sx={{ fontWeight: 800 }}
+                    sx={LIFETIME_CHIP_SX}
                   />
                   <Box sx={{ flex: 1 }} />
                   <Tooltip title="Most recent SKU Index Sync covering these listings" arrow>
@@ -661,7 +674,7 @@ export default function SkuListingManagerPage() {
                       <Paper
                         key={row.itemId}
                         variant="outlined"
-                        sx={{ p: 1.25, mb: 1, borderRadius: 2, bgcolor: '#fff', borderColor: tint.border, '&:last-of-type': { mb: 0 } }}
+                        sx={{ p: 1.25, mb: 1, borderRadius: 2, bgcolor: '#fff', borderColor: band.border, '&:last-of-type': { mb: 0 } }}
                       >
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                           {canAct && (
@@ -753,13 +766,13 @@ export default function SkuListingManagerPage() {
                             size="small"
                             color={row.orderCount90d > 0 ? 'warning' : 'default'}
                             label={`${formatNumber(row.orderCount90d)} / 90d`}
-                            sx={{ fontWeight: 800 }}
+                            sx={ORDERS_90D_CHIP_SX}
                           />
                           <Chip
                             size="small"
                             variant="outlined"
                             label={`${formatNumber(row.lifetimeOrderCount)} lifetime`}
-                            sx={{ fontWeight: 800 }}
+                            sx={LIFETIME_CHIP_SX}
                           />
                           <OrderSparkline monthly={row.monthlyOrders} />
                         </Stack>
