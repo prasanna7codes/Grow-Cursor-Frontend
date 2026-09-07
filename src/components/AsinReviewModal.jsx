@@ -290,7 +290,8 @@ export default function AsinReviewModal({
   templateColumns = [],
   marketplace = 'US',
   sellerId = null,
-  templateName = ''
+  templateName = '',
+  templateId = null
 }) {
   const amazonDomain = MARKETPLACE_DOMAINS[marketplace] || MARKETPLACE_DOMAINS.US;
   const wasOpenRef = useRef(false);
@@ -306,6 +307,7 @@ export default function AsinReviewModal({
   const [showAmazonPreview, setShowAmazonPreview] = useState(false);
   const [appliedDescTemplates, setAppliedDescTemplates] = useState({}); // { [itemId]: templateKey | '' }
   const [rephrasing, setRephrasing] = useState({}); // { [itemId]: true|false }
+  const [rephraseError, setRephraseError] = useState({}); // { [itemId]: string } — why a rephrase was refused
   const [startPriceEditMode, setStartPriceEditMode] = useState({}); // { [itemId]: true|false }
   const [skuStatus, setSkuStatus] = useState({}); // { [itemId]: { status: 'loading'|'active'|'inactive'|null, count: number } }
   const [autoPriceAdjustments, setAutoPriceAdjustments] = useState({}); // { [itemId]: { from, to } }
@@ -379,6 +381,7 @@ export default function AsinReviewModal({
       setDescriptionViewMode('preview');
       setAppliedDescTemplates({});
       setRephrasing({});
+      setRephraseError({});
       setStartPriceEditMode({});
       setSkuStatus({});
       setAutoPriceAdjustments({});
@@ -687,15 +690,30 @@ export default function AsinReviewModal({
         sourceTitle: currentItem.sourceData?.title || '',
         brand: currentItem.sourceData?.brand || '',
         color: currentItem.sourceData?.color || '',
-        compatibility: currentItem.sourceData?.compatibility || ''
+        compatibility: currentItem.sourceData?.compatibility || '',
+        // Sent so the rephrase obeys the template's own title rules instead of
+        // inventing its own — must stay in sync with the normal generation run.
+        templateId: templateId || '',
+        asin: currentItem.asin || '',
+        description: currentItem.sourceData?.description || '',
+        price: currentItem.sourceData?.price || '',
+        productInfo: currentItem.sourceData?.productInfo || null
       };
       if (isSteeringWheelCover && vehicleInputs[currentItem.id]?.trim()) {
         payload.vehicleMentions = vehicleInputs[currentItem.id].trim();
       }
       const { data } = await api.post('/ai/rephrase-title', payload);
       handleFieldChange('title', data.rephrasedTitle, false);
+      setRephraseError(prev => ({ ...prev, [currentItem.id]: '' }));
     } catch (error) {
       console.error('[Rephrase Title] Error:', error);
+      // The server refuses to rephrase when the template's title rules can't be
+      // resolved, rather than guessing — surface that reason to the user.
+      const res = error?.response?.data;
+      setRephraseError(prev => ({
+        ...prev,
+        [currentItem.id]: res?.details || res?.error || 'Rephrase failed. Please try again.'
+      }));
     } finally {
       setRephrasing(prev => ({ ...prev, [currentItem.id]: false }));
     }
@@ -1915,6 +1933,15 @@ export default function AsinReviewModal({
                               : `${(itemData.title || '').length}/80`
                           }
                         />
+                        {rephraseError[currentItem?.id] && (
+                          <Alert
+                            severity="warning"
+                            sx={{ mt: 1 }}
+                            onClose={() => setRephraseError(prev => ({ ...prev, [currentItem.id]: '' }))}
+                          >
+                            {rephraseError[currentItem.id]}
+                          </Alert>
+                        )}
                         {isSteeringWheelCover && (
                           <TextField
                             label="Vehicle models (from reviews)"
