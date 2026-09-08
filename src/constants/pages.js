@@ -122,6 +122,7 @@ export const PAGE_REGISTRY = [
   { id: 'DuplicateSkus', name: 'Duplicate SKUs', path: '/duplicate-skus', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'SkuIndexDashboard', name: 'SKU Index Dashboard', path: '/sku-index-dashboard', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'SkuIndexLookup', name: 'SKU / ASIN Lookup', path: '/sku-index-lookup', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
+  { id: 'SkuListingManager', name: 'SKU Listing Manager', path: '/sku-listing-manager', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'AmazonStockCheck', name: 'Amazon Stock Check', path: '/amazon-stock-check', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'SellerSkuStockCheck', name: 'Seller SKU Stock Check', path: '/seller-sku-stock-check', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },
   { id: 'ListingRevisions', name: 'Listing Revisions', path: '/listing-revisions', category: 'ebayParams', defaultRoles: ['superadmin', 'listingadmin'] },

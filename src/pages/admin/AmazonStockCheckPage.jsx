@@ -52,11 +52,12 @@ import CloseIcon from '@mui/icons-material/Close';
 import CancelIcon from '@mui/icons-material/Cancel';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import ImageIcon from '@mui/icons-material/Image';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import api from '../../lib/api';
 import PageHeader from '../../components/PageHeader';
 import AsinReviewModal from '../../components/AsinReviewModal';
+import ListingThumb from '../../components/ListingThumb';
+import OrderSparkline from '../../components/OrderSparkline';
 import { BRAND_DARK } from '../../constants/brandTheme';
 
 const AMAZON_STOCK_CHECK_RUN_FEATURE_ID = 'amazonStockCheck.run';
@@ -184,74 +185,6 @@ function getRunUser(run) {
 
 function getRunScope(run) {
   return `${run.mode} | ${(run.currencies || []).join(', ') || '-'}`;
-}
-
-function formatMonthLabel(monthKey) {
-  const [year, month] = String(monthKey).split('-').map(Number);
-  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
-}
-
-// 12-month order-count sparkline: single hue, baseline-anchored bars,
-// per-month tooltip; zero months render as a light stub so the timeline
-// stays readable.
-function OrderSparkline({ monthly = [] }) {
-  if (!monthly.length) return null;
-  const max = Math.max(1, ...monthly.map((m) => m.count));
-  return (
-    <Stack
-      direction="row"
-      spacing="2px"
-      alignItems="flex-end"
-      sx={{ height: 26, px: 0.5 }}
-      aria-label="Orders per month, last 12 months"
-    >
-      {monthly.map((m) => (
-        <Tooltip key={m.month} title={`${formatMonthLabel(m.month)}: ${m.count} order${m.count === 1 ? '' : 's'}`}>
-          <Box
-            sx={{
-              width: 7,
-              height: m.count ? Math.max(4, Math.round((m.count / max) * 24)) : 2,
-              bgcolor: m.count ? '#2563eb' : '#e2e8f0',
-              borderRadius: '1px 1px 0 0'
-            }}
-          />
-        </Tooltip>
-      ))}
-    </Stack>
-  );
-}
-
-function ListingThumb({ url, title }) {
-  if (!url) {
-    return (
-      <Box
-        sx={{
-          width: 48,
-          height: 48,
-          flexShrink: 0,
-          borderRadius: 1,
-          bgcolor: '#f1f5f9',
-          border: '1px solid #e5e7eb',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
-        <ImageIcon sx={{ fontSize: 18, color: '#cbd5e1' }} />
-      </Box>
-    );
-  }
-  return (
-    <Box component="a" href={url} target="_blank" rel="noopener noreferrer" sx={{ flexShrink: 0, lineHeight: 0 }}>
-      <Box
-        component="img"
-        src={url}
-        alt={title || 'listing image'}
-        loading="lazy"
-        sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, border: '1px solid #e5e7eb' }}
-      />
-    </Box>
-  );
 }
 
 // One row per seller-listing carrying the SKU being verified. A SKU shared
