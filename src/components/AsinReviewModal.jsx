@@ -178,6 +178,15 @@ function getItemAiRunId(item = {}) {
   return listing._aiRunId || listing.aiRunId || item._aiRunId || item.aiRunId || null;
 }
 
+// A rephrase is only useful if the result is actually unique, so one click keeps
+// retrying until the title clears every synced same-SKU listing. Bounded because a
+// template whose title rules leave little room to vary must not spin forever.
+const MAX_REPHRASE_ATTEMPTS = 5;
+
+// The automatic pass can cover every listing in the queue, so colliding titles are
+// rephrased a few at a time rather than firing one paid AI chain per listing at once.
+const AUTO_REPHRASE_CONCURRENCY = 3;
+
 function normalizeComparableTitle(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -296,6 +305,9 @@ export default function AsinReviewModal({
   const amazonDomain = MARKETPLACE_DOMAINS[marketplace] || MARKETPLACE_DOMAINS.US;
   const wasOpenRef = useRef(false);
   const checkedSkuIdsRef = useRef(new Set()); // tracks item IDs whose SKU check has already been initiated
+  const autoRephrasedIdsRef = useRef(new Set()); // item IDs the automatic title pass has already judged
+  const manualTitleEditsRef = useRef(new Set()); // item IDs whose title the user set themselves
+  const rephraseQueueRef = useRef({ queue: [], active: 0 }); // bounded worker pool for the automatic pass
   const [currentIndex, setCurrentIndex] = useState(0);
   const [editedItems, setEditedItems] = useState({});
   const [dismissedItems, setDismissedItems] = useState(new Set());
@@ -306,11 +318,12 @@ export default function AsinReviewModal({
   const [amazonWindowRef, setAmazonWindowRef] = useState(null);
   const [showAmazonPreview, setShowAmazonPreview] = useState(false);
   const [appliedDescTemplates, setAppliedDescTemplates] = useState({}); // { [itemId]: templateKey | '' }
-  const [rephrasing, setRephrasing] = useState({}); // { [itemId]: true|false }
+  const [rephrasing, setRephrasing] = useState({}); // { [itemId]: 1-based attempt number while running | false }
   const [rephraseError, setRephraseError] = useState({}); // { [itemId]: string } — why a rephrase was refused
   const [startPriceEditMode, setStartPriceEditMode] = useState({}); // { [itemId]: true|false }
   const [skuStatus, setSkuStatus] = useState({}); // { [itemId]: { status: 'loading'|'active'|'inactive'|null, count: number } }
   const [autoPriceAdjustments, setAutoPriceAdjustments] = useState({}); // { [itemId]: { from, to } }
+  const [autoTitleRephrases, setAutoTitleRephrases] = useState({}); // { [itemId]: { from, to, attempts } }
   const [vehicleInputs, setVehicleInputs] = useState({}); // { [itemId]: string } — Steering Wheel Cover only
   const [copyState, setCopyState] = useState({ status: 'idle', count: 0 }); // 'idle' | 'copied' | 'error'
   const copyResetRef = useRef(null);
@@ -349,6 +362,9 @@ export default function AsinReviewModal({
   const currentSkuStatus = currentItem?.id ? skuStatus[currentItem.id] : null;
   const crossSellerSummary = getCrossSellerMatchSummary(currentSkuStatus, itemData);
   const currentAutoPriceAdjustment = currentItem?.id ? autoPriceAdjustments[currentItem.id] : null;
+  const currentAutoTitleRephrase = currentItem?.id ? autoTitleRephrases[currentItem.id] : null;
+  // Saving mid-pass would write the colliding titles the pass is still fixing.
+  const rephraseInFlight = Object.values(rephrasing).some(Boolean);
 
   // ASINs still in the review queue (dismissed ones excluded), de-duplicated in review order.
   const reviewAsins = [...new Set(activeItems.map(item => item.asin).filter(Boolean))];
@@ -385,8 +401,12 @@ export default function AsinReviewModal({
       setStartPriceEditMode({});
       setSkuStatus({});
       setAutoPriceAdjustments({});
+      setAutoTitleRephrases({});
       setCopyState({ status: 'idle', count: 0 });
       checkedSkuIdsRef.current = new Set();
+      autoRephrasedIdsRef.current = new Set();
+      manualTitleEditsRef.current = new Set();
+      rephraseQueueRef.current = { queue: [], active: 0 };
     }
 
     wasOpenRef.current = open;
@@ -600,6 +620,18 @@ export default function AsinReviewModal({
       [currentItem.id]: updatedItem
     }));
 
+    if (field === 'title' && !isCustomField) {
+      // A title the user settled on is theirs to keep — the automatic pass must
+      // not come back later and replace it.
+      manualTitleEditsRef.current.add(currentItem.id);
+      setAutoTitleRephrases(prev => {
+        if (!prev[currentItem.id]) return prev;
+        const next = { ...prev };
+        delete next[currentItem.id];
+        return next;
+      });
+    }
+
     if (field === 'startPrice' && !isCustomField) {
       setAutoPriceAdjustments(prev => {
         if (!prev[currentItem.id]) return prev;
@@ -681,30 +713,91 @@ export default function AsinReviewModal({
     }
   };
 
-  const handleRephrase = async () => {
-    if (!currentItem || !itemData.title) return;
-    setRephrasing(prev => ({ ...prev, [currentItem.id]: true }));
-    try {
+  // Shared by the automatic pass and the manual button: keeps asking for a new
+  // wording until it clears every synced same-SKU title, handing each collided
+  // attempt back so the model is told what already failed instead of re-rolling
+  // blind. With no synced records this collapses to a single call.
+  const rephraseUntilUnique = async ({ item, currentTitle, records, vehicleMentions, onAttempt }) => {
+    const takenTitles = records
+      .map(record => String(record.title || '').trim())
+      .filter(Boolean);
+    const takenNormalized = new Set(takenTitles.map(normalizeComparableTitle).filter(Boolean));
+
+    const rejectedTitles = [];
+    let lastTitle = '';
+
+    for (let attempt = 1; attempt <= MAX_REPHRASE_ATTEMPTS; attempt += 1) {
+      if (onAttempt) onAttempt(attempt);
+
       const payload = {
-        currentTitle: itemData.title,
-        sourceTitle: currentItem.sourceData?.title || '',
-        brand: currentItem.sourceData?.brand || '',
-        color: currentItem.sourceData?.color || '',
-        compatibility: currentItem.sourceData?.compatibility || '',
+        // Each retry rephrases away from the wording that just collided.
+        currentTitle: lastTitle || currentTitle,
+        sourceTitle: item.sourceData?.title || '',
+        brand: item.sourceData?.brand || '',
+        color: item.sourceData?.color || '',
+        compatibility: item.sourceData?.compatibility || '',
         // Sent so the rephrase obeys the template's own title rules instead of
         // inventing its own — must stay in sync with the normal generation run.
         templateId: templateId || '',
-        asin: currentItem.asin || '',
-        description: currentItem.sourceData?.description || '',
-        price: currentItem.sourceData?.price || '',
-        productInfo: currentItem.sourceData?.productInfo || null
+        asin: item.asin || '',
+        description: item.sourceData?.description || '',
+        price: item.sourceData?.price || '',
+        productInfo: item.sourceData?.productInfo || null,
+        avoidTitles: [...takenTitles, ...rejectedTitles],
+        attempt
       };
-      if (isSteeringWheelCover && vehicleInputs[currentItem.id]?.trim()) {
-        payload.vehicleMentions = vehicleInputs[currentItem.id].trim();
-      }
+      if (vehicleMentions) payload.vehicleMentions = vehicleMentions;
+
       const { data } = await api.post('/ai/rephrase-title', payload);
-      handleFieldChange('title', data.rephrasedTitle, false);
-      setRephraseError(prev => ({ ...prev, [currentItem.id]: '' }));
+      const nextTitle = String(data?.rephrasedTitle || '').trim();
+      if (!nextTitle) continue;
+
+      lastTitle = nextTitle;
+      if (!takenNormalized.has(normalizeComparableTitle(nextTitle))) {
+        return { outcome: 'unique', title: nextTitle, attempts: attempt };
+      }
+      if (!rejectedTitles.includes(nextTitle)) rejectedTitles.push(nextTitle);
+    }
+
+    if (!lastTitle) return { outcome: 'empty', attempts: MAX_REPHRASE_ATTEMPTS };
+    return { outcome: 'exhausted', title: lastTitle, attempts: MAX_REPHRASE_ATTEMPTS };
+  };
+
+  const vehicleMentionsFor = itemId => (
+    isSteeringWheelCover ? (vehicleInputs[itemId]?.trim() || '') : ''
+  );
+
+  const exhaustedMessage = `Still matches a synced listing after ${MAX_REPHRASE_ATTEMPTS} rephrase attempts — this template's title rules may leave too little room to vary. Edit the title manually.`;
+
+  const handleRephrase = async () => {
+    if (!currentItem || !itemData.title) return;
+
+    const itemId = currentItem.id;
+    setRephraseError(prev => ({ ...prev, [itemId]: '' }));
+
+    try {
+      const result = await rephraseUntilUnique({
+        item: currentItem,
+        currentTitle: itemData.title,
+        records: crossSellerSummary.records,
+        vehicleMentions: vehicleMentionsFor(itemId),
+        onAttempt: attempt => setRephrasing(prev => ({ ...prev, [itemId]: attempt }))
+      });
+
+      if (result.outcome === 'empty') {
+        setRephraseError(prev => ({
+          ...prev,
+          [itemId]: 'Rephrase returned an empty title. Please try again.'
+        }));
+        return;
+      }
+
+      // On 'exhausted' the last wording is still kept — it is no worse than the
+      // title already in the field — with the warning below saying it collides.
+      handleFieldChange('title', result.title, false);
+      if (result.outcome === 'exhausted') {
+        setRephraseError(prev => ({ ...prev, [itemId]: exhaustedMessage }));
+      }
     } catch (error) {
       console.error('[Rephrase Title] Error:', error);
       // The server refuses to rephrase when the template's title rules can't be
@@ -712,12 +805,101 @@ export default function AsinReviewModal({
       const res = error?.response?.data;
       setRephraseError(prev => ({
         ...prev,
-        [currentItem.id]: res?.details || res?.error || 'Rephrase failed. Please try again.'
+        [itemId]: res?.details || res?.error || 'Rephrase failed. Please try again.'
       }));
     } finally {
-      setRephrasing(prev => ({ ...prev, [currentItem.id]: false }));
+      setRephrasing(prev => ({ ...prev, [itemId]: false }));
     }
   };
+
+  // The automatic pass works across the whole queue, including listings the user
+  // has not navigated to yet, so it writes by item id rather than through
+  // handleFieldChange (which only ever targets the listing on screen).
+  const applyTitleToItem = (itemId, title) => {
+    setEditedItems(prev => {
+      const base = prev[itemId] || previewItems.find(item => item.id === itemId)?.generatedListing || {};
+      return { ...prev, [itemId]: { ...base, title } };
+    });
+    setHasUnsavedChanges(true);
+  };
+
+  const runAutoRephrase = async (item, currentTitle, records) => {
+    const itemId = item.id;
+    try {
+      const result = await rephraseUntilUnique({
+        item,
+        currentTitle,
+        records,
+        vehicleMentions: vehicleMentionsFor(itemId),
+        onAttempt: attempt => setRephrasing(prev => ({ ...prev, [itemId]: attempt }))
+      });
+
+      if (result.outcome === 'empty') return;
+
+      applyTitleToItem(itemId, result.title);
+
+      if (result.outcome === 'unique') {
+        setAutoTitleRephrases(prev => ({
+          ...prev,
+          [itemId]: { from: currentTitle, to: result.title, attempts: result.attempts }
+        }));
+      } else {
+        setRephraseError(prev => ({ ...prev, [itemId]: exhaustedMessage }));
+      }
+    } catch (error) {
+      console.error('[Auto Rephrase Title] Error:', error);
+      const res = error?.response?.data;
+      setRephraseError(prev => ({
+        ...prev,
+        [itemId]: res?.details || res?.error || 'Automatic rephrase failed — use the rephrase button to retry.'
+      }));
+    } finally {
+      setRephrasing(prev => ({ ...prev, [itemId]: false }));
+    }
+  };
+
+  const pumpRephraseQueue = () => {
+    const pool = rephraseQueueRef.current;
+    while (pool.active < AUTO_REPHRASE_CONCURRENCY && pool.queue.length > 0) {
+      const job = pool.queue.shift();
+      pool.active += 1;
+      job().finally(() => {
+        pool.active -= 1;
+        pumpRephraseQueue();
+      });
+    }
+  };
+
+  // Rephrase colliding titles as soon as the SKU check reveals the collision, so a
+  // listing that clashes with another seller is fixed without the user clicking
+  // anything. Only titles that actually collide cost an AI call; the manual button
+  // stays for re-rolling a title by choice.
+  useEffect(() => {
+    if (!open) return;
+
+    previewItems.forEach(item => {
+      if (autoRephrasedIdsRef.current.has(item.id)) return;
+
+      const skuState = skuStatus[item.id];
+      if (!skuState || skuState.status === 'loading') return; // check still in flight
+
+      const listingData = editedItems[item.id] || item.generatedListing;
+      if (!listingData?.title) return; // not generated yet — re-runs when editedItems updates
+
+      autoRephrasedIdsRef.current.add(item.id);
+
+      if (manualTitleEditsRef.current.has(item.id)) return; // the user's own title
+      const summary = getCrossSellerMatchSummary(skuState, listingData);
+      if (!summary.hasTitleMatch) return; // already unique — no AI call needed
+
+      rephraseQueueRef.current.queue.push(
+        () => runAutoRephrase(item, listingData.title, summary.records)
+      );
+    });
+
+    pumpRephraseQueue();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, previewItems, skuStatus, editedItems]);
 
   const handleShuffleDescriptionImages = () => {
     if (!currentItem || !canShuffleDescriptionImages) return;
@@ -993,7 +1175,11 @@ export default function AsinReviewModal({
           
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
             {currentItem && (
-              <Tooltip title="Rephrase title">
+              <Tooltip title={
+                rephrasing[currentItem.id]
+                  ? `Rephrasing… attempt ${rephrasing[currentItem.id]} of ${MAX_REPHRASE_ATTEMPTS}`
+                  : 'Rephrase title — retries until it matches no synced listing'
+              }>
                 <span>
                   <IconButton
                     onClick={handleRephrase}
@@ -1157,7 +1343,7 @@ export default function AsinReviewModal({
                     });
                   onListDirectly(listingsToSave, buildDismissedReviewStats(previewItems, dismissedItems));
                 }}
-                disabled={saving || activeItems.every(i => ['error', 'loading', 'blocked'].includes(i.status))}
+                disabled={saving || rephraseInFlight || activeItems.every(i => ['error', 'loading', 'blocked'].includes(i.status))}
                 sx={{ fontSize: showAmazonPreview ? '0.7rem' : undefined, whiteSpace: 'nowrap' }}
               >
                 List Directly
@@ -1168,10 +1354,14 @@ export default function AsinReviewModal({
               startIcon={showAmazonPreview ? null : <SaveIcon />}
               onClick={handleSaveAll}
               size="small"
-              disabled={saving || activeItems.every(i => ['error', 'loading', 'blocked'].includes(i.status))}
+              disabled={saving || rephraseInFlight || activeItems.every(i => ['error', 'loading', 'blocked'].includes(i.status))}
               sx={{ fontSize: showAmazonPreview ? '0.7rem' : undefined, whiteSpace: 'nowrap' }}
             >
-              {saving ? 'Saving...' : `Save All (${activeItems.filter(i => !['error', 'loading', 'blocked'].includes(i.status)).length})`}
+              {saving
+                ? 'Saving...'
+                : rephraseInFlight
+                ? 'Rephrasing…'
+                : `Save All (${activeItems.filter(i => !['error', 'loading', 'blocked'].includes(i.status)).length})`}
             </Button>
             <IconButton onClick={handleClose} size="small">
               <CloseIcon fontSize={showAmazonPreview ? 'small' : 'medium'} />
@@ -1924,7 +2114,9 @@ export default function AsinReviewModal({
                           fullWidth
                           required
                           helperText={
-                            crossSellerSummary.records.length > 0
+                            rephrasing[currentItem?.id]
+                              ? `Rephrasing… attempt ${rephrasing[currentItem.id]} of ${MAX_REPHRASE_ATTEMPTS} — looking for a title no synced listing uses`
+                              : crossSellerSummary.records.length > 0
                               ? `${(itemData.title || '').length}/80 • ${
                                   crossSellerSummary.hasTitleMatch
                                     ? `Title matches ${crossSellerSummary.titleMatches.length} synced same-SKU listing${crossSellerSummary.titleMatches.length === 1 ? '' : 's'}`
@@ -1933,6 +2125,26 @@ export default function AsinReviewModal({
                               : `${(itemData.title || '').length}/80`
                           }
                         />
+                        {currentAutoTitleRephrase && (
+                          <Tooltip
+                            placement="bottom-start"
+                            arrow
+                            title={`Title auto-rephrased because it matched another seller with this SKU. Was: "${currentAutoTitleRephrase.from}"`}
+                          >
+                            <Chip
+                              label={`Auto-rephrased${currentAutoTitleRephrase.attempts > 1 ? ` · ${currentAutoTitleRephrase.attempts} tries` : ''}`}
+                              size="small"
+                              sx={{
+                                mt: 1,
+                                height: 26,
+                                fontWeight: 900,
+                                bgcolor: '#e8f4fd',
+                                color: '#0b5f8f',
+                                border: '1px solid #64b5f6'
+                              }}
+                            />
+                          </Tooltip>
+                        )}
                         {rephraseError[currentItem?.id] && (
                           <Alert
                             severity="warning"
