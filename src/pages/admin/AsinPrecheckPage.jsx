@@ -140,6 +140,26 @@ const formatEbayMotorsTooltip = (row) => {
   ].join('\n');
 };
 
+// Reverse-image check (server: utils/reverseImageCheck.js). Only high, medium
+// and error get a chip; a clean result stays quiet so the title cell does not
+// fill up with badges on every row.
+const IP_RISK_CHIP = {
+  high: { label: 'IP risk: photo matched to brand', color: 'error', variant: 'filled' },
+  medium: { label: 'IP risk: photo reused elsewhere', color: 'warning', variant: 'outlined' },
+  error: { label: 'IP check failed', color: 'default', variant: 'outlined' }
+};
+
+const formatIpRiskTooltip = (row) => {
+  const risk = row.ipRisk || {};
+  const lines = [];
+  if (Array.isArray(risk.reasons) && risk.reasons.length > 0) lines.push(...risk.reasons);
+  if (Array.isArray(risk.brandHits) && risk.brandHits.length > 0) lines.push(`Blocked brands: ${risk.brandHits.join(', ')}`);
+  if (Array.isArray(risk.matchedDomains) && risk.matchedDomains.length > 0) lines.push(`Hosts: ${risk.matchedDomains.join(', ')}`);
+  if (Array.isArray(risk.bestGuessLabels) && risk.bestGuessLabels.length > 0) lines.push(`Google labels: ${risk.bestGuessLabels.join(' | ')}`);
+  lines.push(`${risk.imagesChecked || 0} photo(s) checked${risk.cached ? ' (cached result)' : ''}`);
+  return lines.join('\n');
+};
+
 export default function AsinPrecheckPage() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -164,6 +184,10 @@ export default function AsinPrecheckPage() {
   // Non-null while the run is between sweeps or inside one; drives the banner
   // that explains the pause. See ASIN_PRECHECK_SWEEP_GAPS_MS on the server.
   const [sweepStatus, setSweepStatus] = useState(null);
+  // null until the first run reports whether the server ran the reverse-image
+  // IP check, so the status chip does not claim anything before it knows.
+  const [ipRiskCheckActive, setIpRiskCheckActive] = useState(null);
+  const [ipRiskProvider, setIpRiskProvider] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [filters, setFilters] = useState(savedPreferences.filters);
@@ -397,6 +421,7 @@ export default function AsinPrecheckPage() {
       ebayMotorsReason: '',
       ebayMotorsSignals: null,
       ebayMotorsDetected: null,
+      ipRisk: null,
       intent: 'neutral',
       status: 'loading',
       progressStage: 'queued',
@@ -435,6 +460,8 @@ export default function AsinPrecheckPage() {
         switch (message.type) {
           case 'started':
             setProgress({ current: 0, total: message.total || asinsToCheck.length });
+            setIpRiskCheckActive(Boolean(message.ipRiskCheck));
+            setIpRiskProvider(message.ipRiskProvider || '');
             break;
           case 'ping':
             break;
@@ -786,6 +813,24 @@ export default function AsinPrecheckPage() {
                   }
                 }}
               />
+              {ipRiskCheckActive !== null && (
+                <Tooltip
+                  title={ipRiskCheckActive
+                    ? 'Each ASIN\'s photos are reverse-image searched; a photo tied to a brand marks the row high risk and excludes it.'
+                    : 'Reverse-image search of listing photos is off. It runs through the Scrapingdog key (Google Lens) or GOOGLE_VISION_API_KEY on the server.'}
+                  arrow
+                >
+                  <Chip
+                    size="small"
+                    label={ipRiskCheckActive
+                      ? `IP photo check: on${ipRiskProvider === 'scrapingdog' ? ' (Google Lens)' : ipRiskProvider === 'vision' ? ' (Google Vision)' : ''}`
+                      : 'IP photo check: off'}
+                    color={ipRiskCheckActive ? 'success' : 'default'}
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Tooltip>
+              )}
               <Button variant="text" onClick={clearAllFilters}>
                 Clear Filters
               </Button>
@@ -999,6 +1044,24 @@ export default function AsinPrecheckPage() {
                               label={row.ebayMotorsEligible ? 'eBay Motors Eligible' : 'Excluded: Missing Fitment'}
                               color={row.ebayMotorsEligible ? 'success' : 'warning'}
                               variant={row.ebayMotorsEligible ? 'filled' : 'outlined'}
+                              sx={{ fontWeight: 700 }}
+                            />
+                          </Tooltip>
+                        )}
+                        {IP_RISK_CHIP[row.ipRisk?.level] && (
+                          <Tooltip
+                            title={
+                              <Box sx={{ whiteSpace: 'pre-line' }}>
+                                {formatIpRiskTooltip(row)}
+                              </Box>
+                            }
+                            arrow
+                          >
+                            <Chip
+                              size="small"
+                              label={IP_RISK_CHIP[row.ipRisk.level].label}
+                              color={IP_RISK_CHIP[row.ipRisk.level].color}
+                              variant={IP_RISK_CHIP[row.ipRisk.level].variant}
                               sx={{ fontWeight: 700 }}
                             />
                           </Tooltip>
