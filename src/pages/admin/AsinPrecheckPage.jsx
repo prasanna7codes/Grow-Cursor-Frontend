@@ -38,6 +38,7 @@ import {
   ContentCopy as CopyIcon,
   Delete as DeleteIcon,
   PlayArrow as PlayIcon,
+  Autorenew as RetryIcon,
   Search as SearchIcon
 } from '@mui/icons-material';
 import api, { getAuthToken } from '../../lib/api.js';
@@ -164,6 +165,27 @@ export default function AsinPrecheckPage() {
   // Non-null while the run is between sweeps or inside one; drives the banner
   // that explains the pause. See ASIN_PRECHECK_SWEEP_GAPS_MS on the server.
   const [sweepStatus, setSweepStatus] = useState(null);
+  // How many retry sweeps the server will run for this batch. Sent up-front on
+  // 'started', because rows begin showing as 'retrying' during pass 0 — before
+  // any sweep event has been emitted — and the banner needs the schedule then.
+  const [totalSweeps, setTotalSweeps] = useState(0);
+  // Seconds until the next sweep fires. The progress bar cannot move during the
+  // gap (nothing is being checked), so this is the only thing telling the user
+  // the run is alive rather than hung — without it they close the tab and
+  // resubmit, which is the exact behaviour sweeps exist to prevent.
+  const [sweepSecondsLeft, setSweepSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    const waitingUntil = sweepStatus?.waitingUntil;
+    if (!waitingUntil) {
+      setSweepSecondsLeft(0);
+      return undefined;
+    }
+    const tick = () => setSweepSecondsLeft(Math.max(0, Math.ceil((waitingUntil - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [sweepStatus?.waitingUntil]);
   const [imagePreview, setImagePreview] = useState(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [filters, setFilters] = useState(savedPreferences.filters);
@@ -294,6 +316,13 @@ export default function AsinPrecheckPage() {
     [visibleRows]
   );
 
+  // Rows the server has parked for a later sweep. Drives the buffer segment of
+  // the progress bar and the retry banner.
+  const sweepPending = useMemo(
+    () => rows.filter(row => row.status === 'retrying').length,
+    [rows]
+  );
+
   const includedCount = useMemo(
     () => rows.filter(row => row.intent === 'included').length,
     [rows]
@@ -406,6 +435,7 @@ export default function AsinPrecheckPage() {
     setRows(prev => [...prev, ...initialRows]);
     setProgress({ current: 0, total: asinsToCheck.length });
     setSweepStatus(null);
+    setTotalSweeps(0);
     setRunning(true);
     setSetupOpen(false);
     setAsinInput('');
@@ -435,6 +465,7 @@ export default function AsinPrecheckPage() {
         switch (message.type) {
           case 'started':
             setProgress({ current: 0, total: message.total || asinsToCheck.length });
+            setTotalSweeps(message.sweeps || 0);
             break;
           case 'ping':
             break;
@@ -851,19 +882,57 @@ export default function AsinPrecheckPage() {
 
           {running && (
             <Box sx={{ mt: 2 }}>
+              {/* During a sweep the solid bar is what is finished and the
+                  animated buffer is what is being retried, so the bar keeps
+                  moving even though `progress.current` cannot advance. */}
               <LinearProgress
-                variant={progress.total > 0 ? 'determinate' : 'indeterminate'}
+                variant={
+                  progress.total === 0
+                    ? 'indeterminate'
+                    : sweepPending > 0
+                      ? 'buffer'
+                      : 'determinate'
+                }
                 value={progress.total > 0 ? Math.min(100, (progress.current / progress.total) * 100) : undefined}
+                valueBuffer={
+                  progress.total > 0 && sweepPending > 0
+                    ? Math.min(100, ((progress.current + sweepPending) / progress.total) * 100)
+                    : undefined
+                }
                 sx={{ height: 8, borderRadius: 999 }}
               />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
                 {progress.current}/{progress.total} checked
-                {sweepStatus?.pending > 0 && (
-                  sweepStatus.waitingUntil
-                    ? ` — ${sweepStatus.pending} need another try, retrying shortly (sweep ${sweepStatus.sweep} of ${sweepStatus.totalSweeps})`
-                    : ` — retrying ${sweepStatus.pending} (sweep ${sweepStatus.sweep} of ${sweepStatus.totalSweeps})`
-                )}
               </Typography>
+
+              {sweepPending > 0 && (
+                <Alert
+                  severity="info"
+                  icon={
+                    <RetryIcon
+                      fontSize="inherit"
+                      sx={{
+                        // Spins only while a sweep is actually running; during
+                        // the wait the countdown carries the motion instead.
+                        animation: sweepStatus?.waitingUntil ? 'none' : 'asinPrecheckSpin 1.4s linear infinite',
+                        '@keyframes asinPrecheckSpin': { to: { transform: 'rotate(360deg)' } }
+                      }}
+                    />
+                  }
+                  sx={{ mt: 1.5, alignItems: 'center', py: 0.5 }}
+                >
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
+                    {sweepStatus?.waitingUntil
+                      ? `Retrying ${sweepPending} ASIN${sweepPending === 1 ? '' : 's'} in ${sweepSecondsLeft}s`
+                      : `${sweepPending} ASIN${sweepPending === 1 ? '' : 's'} will be retried automatically`}
+                  </Typography>
+                  <Typography variant="caption" component="span" sx={{ display: 'block', opacity: 0.85 }}>
+                    Amazon didn&apos;t return full data for these on the first pass. Attempt{' '}
+                    {(sweepStatus?.sweep ?? 0) + 1} of {(sweepStatus?.totalSweeps ?? totalSweeps) + 1} — everything else is
+                    already done below, so you can keep reviewing while this finishes.
+                  </Typography>
+                </Alert>
+              )}
             </Box>
           )}
         </Paper>
@@ -936,7 +1005,20 @@ export default function AsinPrecheckPage() {
                   <TableCell sx={{ fontWeight: 700 }}>{row.asin}</TableCell>
                   <TableCell sx={{ width: 132 }}>
                     {isRowPending(row) ? (
-                      <CircularProgress size={22} />
+                      <Stack alignItems="center" spacing={0.5} sx={{ width: 96 }}>
+                        <CircularProgress size={22} />
+                        {row.status === 'retrying' && (
+                          <Tooltip title={row.errors?.[0] || 'Amazon did not return full data on the last attempt'}>
+                            <Chip
+                              size="small"
+                              label={`Retry ${row.retryPass || 1}`}
+                              color="info"
+                              variant="outlined"
+                              sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: 0.75 } }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Stack>
                     ) : row.image ? (
                       <ButtonBase
                         onClick={() => setImagePreview({ src: row.image, asin: row.asin, title: row.title })}
