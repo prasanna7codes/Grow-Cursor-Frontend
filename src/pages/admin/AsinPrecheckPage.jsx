@@ -98,10 +98,15 @@ const getSavedPrecheckPreferences = () => {
 const getSellerDisplayName = (seller) =>
   seller?.user?.username || seller?.user?.email || seller?.name || 'Unknown Seller';
 
-const isRowComplete = (row) => row.status !== 'loading' && row.status !== 'error';
+// 'retrying' is a row the server parked for a later sweep in the same run. It
+// renders exactly like 'loading' — the work is still in progress, and the user
+// has nothing to do about it — so every in-progress check goes through here.
+const isRowPending = (row) => row.status === 'loading' || row.status === 'retrying';
+
+const isRowComplete = (row) => !isRowPending(row) && row.status !== 'error';
 
 const formatDeliveryLabel = (row) => {
-  if (row.status === 'loading') return 'Checking';
+  if (isRowPending(row)) return 'Checking';
   if (row.deliveryDays == null) return 'Unknown';
   if (row.deliveryDays === 0) return 'Today';
   if (row.deliveryDays === 1) return '1 day';
@@ -109,7 +114,7 @@ const formatDeliveryLabel = (row) => {
 };
 
 const getDeliveryTooltip = (row) => {
-  if (row.status === 'loading') return 'Checking delivery date';
+  if (isRowPending(row)) return 'Checking delivery date';
   if (row.deliveryDate) {
     return row.shippingTime ? `${row.deliveryDate} (${row.shippingTime})` : row.deliveryDate;
   }
@@ -156,6 +161,9 @@ export default function AsinPrecheckPage() {
   const [rows, setRows] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  // Non-null while the run is between sweeps or inside one; drives the banner
+  // that explains the pause. See ASIN_PRECHECK_SWEEP_GAPS_MS on the server.
+  const [sweepStatus, setSweepStatus] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [filters, setFilters] = useState(savedPreferences.filters);
@@ -272,17 +280,17 @@ export default function AsinPrecheckPage() {
   );
 
   const completedRows = useMemo(
-    () => rows.filter(row => row.status !== 'loading'),
+    () => rows.filter(row => !isRowPending(row)),
     [rows]
   );
 
   const visibleInactiveRows = useMemo(
-    () => visibleRows.filter(row => row.status !== 'loading' && !row.active),
+    () => visibleRows.filter(row => !isRowPending(row) && !row.active),
     [visibleRows]
   );
 
   const visibleActiveCount = useMemo(
-    () => visibleRows.filter(row => row.status !== 'loading' && row.active).length,
+    () => visibleRows.filter(row => !isRowPending(row) && row.active).length,
     [visibleRows]
   );
 
@@ -397,6 +405,7 @@ export default function AsinPrecheckPage() {
 
     setRows(prev => [...prev, ...initialRows]);
     setProgress({ current: 0, total: asinsToCheck.length });
+    setSweepStatus(null);
     setRunning(true);
     setSetupOpen(false);
     setAsinInput('');
@@ -411,6 +420,7 @@ export default function AsinPrecheckPage() {
 
     eventSource.onmessage = (event) => {
       if (event.data === '[DONE]') {
+        setSweepStatus(null);
         eventSource.close();
         if (window._asinPrecheckEventSource === eventSource) {
           window._asinPrecheckEventSource = null;
@@ -427,6 +437,24 @@ export default function AsinPrecheckPage() {
             setProgress({ current: 0, total: message.total || asinsToCheck.length });
             break;
           case 'ping':
+            break;
+          case 'sweep_waiting':
+            // The server holds the run open between sweeps. Say so, otherwise
+            // the pause reads as a hang and users close the tab and resubmit.
+            setSweepStatus({
+              pending: message.pending || 0,
+              sweep: message.sweep || 0,
+              totalSweeps: message.totalSweeps || 0,
+              waitingUntil: Date.now() + (message.waitMs || 0)
+            });
+            break;
+          case 'sweep_started':
+            setSweepStatus({
+              pending: message.pending || 0,
+              sweep: message.sweep || 0,
+              totalSweeps: message.totalSweeps || 0,
+              waitingUntil: null
+            });
             break;
           case 'item_started':
             setRows(prev => prev.map(row => (
@@ -458,6 +486,7 @@ export default function AsinPrecheckPage() {
     };
 
     eventSource.onerror = () => {
+      setSweepStatus(null);
       eventSource.close();
       if (window._asinPrecheckEventSource === eventSource) {
         window._asinPrecheckEventSource = null;
@@ -829,6 +858,11 @@ export default function AsinPrecheckPage() {
               />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
                 {progress.current}/{progress.total} checked
+                {sweepStatus?.pending > 0 && (
+                  sweepStatus.waitingUntil
+                    ? ` — ${sweepStatus.pending} need another try, retrying shortly (sweep ${sweepStatus.sweep} of ${sweepStatus.totalSweeps})`
+                    : ` — retrying ${sweepStatus.pending} (sweep ${sweepStatus.sweep} of ${sweepStatus.totalSweeps})`
+                )}
               </Typography>
             </Box>
           )}
@@ -896,12 +930,12 @@ export default function AsinPrecheckPage() {
                     <Checkbox
                       checked={selectedIds.has(row.id)}
                       onChange={() => toggleRow(row.id)}
-                      disabled={row.status === 'loading'}
+                      disabled={isRowPending(row)}
                     />
                   </TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>{row.asin}</TableCell>
                   <TableCell sx={{ width: 132 }}>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <CircularProgress size={22} />
                     ) : row.image ? (
                       <ButtonBase
@@ -935,7 +969,7 @@ export default function AsinPrecheckPage() {
                     )}
                   </TableCell>
                   <TableCell sx={{ width: 140 }}>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <Typography variant="body2" color="text.secondary">Fetching...</Typography>
                     ) : row.brand ? (
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.brand}</Typography>
@@ -944,7 +978,7 @@ export default function AsinPrecheckPage() {
                     )}
                   </TableCell>
                   <TableCell sx={{ width: '38%', minWidth: 240, maxWidth: 520 }}>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <Typography variant="body2" color="text.secondary">Fetching...</Typography>
                     ) : row.title ? (
                       <Stack spacing={0.75} alignItems="flex-start">
@@ -992,7 +1026,7 @@ export default function AsinPrecheckPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <Chip label="Checking" size="small" />
                     ) : row.inStock === true ? (
                       <Chip label="In Stock" size="small" color="success" />
@@ -1003,7 +1037,7 @@ export default function AsinPrecheckPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <Tooltip title={getDeliveryTooltip(row)} arrow>
                         <Chip label="Checking" size="small" />
                       </Tooltip>
@@ -1028,7 +1062,7 @@ export default function AsinPrecheckPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    {row.status === 'loading' ? (
+                    {isRowPending(row) ? (
                       <Chip label="Checking" size="small" />
                     ) : row.active ? (
                       <Chip icon={<CheckCircleIcon />} label="Active" size="small" color="success" />
