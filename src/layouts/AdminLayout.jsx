@@ -118,6 +118,7 @@ const SkuIndexSyncPage = lazy(() => import('../pages/admin/SkuIndexSyncPage.jsx'
 const DuplicateSkusPage = lazy(() => import('../pages/admin/DuplicateSkusPage.jsx'));
 const SkuIndexDashboardPage = lazy(() => import('../pages/admin/SkuIndexDashboardPage.jsx'));
 const SkuListingManagerPage = lazy(() => import('../pages/admin/SkuListingManagerPage.jsx'));
+const KeywordEndListingPage = lazy(() => import('../pages/admin/KeywordEndListingPage.jsx'));
 const AmazonStockCheckPage = lazy(() => import('../pages/admin/AmazonStockCheckPage.jsx'));
 const ListingRevisionsPage = lazy(() => import('../pages/admin/ListingRevisionsPage.jsx'));
 const SellerSkuStockCheckPage = lazy(() => import('../pages/admin/SellerSkuStockCheckPage.jsx'));
@@ -356,6 +357,7 @@ const COMPONENT_MAP = {
   // from anyone without SkuListingManager access, so this stays read-only.
   'SkuIndexLookup': SkuListingManagerPage,
   'SkuListingManager': SkuListingManagerPage,
+  'KeywordEndListing': KeywordEndListingPage,
   'AmazonStockCheck': AmazonStockCheckPage,
   'ListingRevisions': ListingRevisionsPage,
   'SellerSkuStockCheck': SellerSkuStockCheckPage,

@@ -11,6 +11,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LayersClearIcon from '@mui/icons-material/LayersClear';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ManageSearchIcon from '@mui/icons-material/ManageSearch';
+import PlaylistRemoveIcon from '@mui/icons-material/PlaylistRemove';
 import AdminPageShell from '../../components/AdminPageShell';
 import api from '../../lib/api';
 
@@ -84,6 +85,7 @@ export default function EndListingStatsPage() {
   const totalExpiry = rows.reduce((s, r) => s + r.expiryListingCount, 0);
   const totalAmazon = rows.reduce((s, r) => s + (r.amazonStockCheckCount || 0), 0);
   const totalSkuManager = rows.reduce((s, r) => s + (r.skuListingManagerCount || 0), 0);
+  const totalKeywordEnd = rows.reduce((s, r) => s + (r.keywordEndListingCount || 0), 0);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
   return (
@@ -201,6 +203,13 @@ export default function EndListingStatsPage() {
               sx={{ fontWeight: 600, fontSize: '0.9rem', px: 1 }}
             />
             <Chip
+              icon={<PlaylistRemoveIcon fontSize="small" />}
+              label={`Keyword End Listing: ${totalKeywordEnd}`}
+              color="error"
+              variant="outlined"
+              sx={{ fontWeight: 600, fontSize: '0.9rem', px: 1 }}
+            />
+            <Chip
               icon={<RemoveCircleOutlineIcon fontSize="small" />}
               label={`Total: ${grandTotal}`}
               color="error"
@@ -236,6 +245,7 @@ export default function EndListingStatsPage() {
                   <TableCell align="center">Expiry Listing</TableCell>
                   <TableCell align="center">Amazon Stock Check</TableCell>
                   <TableCell align="center">SKU Listing Manager</TableCell>
+                  <TableCell align="center">Keyword End Listing</TableCell>
                   <TableCell>Breakdown</TableCell>
                   <TableCell align="center">Total</TableCell>
                 </TableRow>
@@ -273,6 +283,13 @@ export default function EndListingStatsPage() {
                         <Typography variant="body2" color="text.disabled">—</Typography>
                       )}
                     </TableCell>
+                    <TableCell align="center">
+                      {row.keywordEndListingCount > 0 ? (
+                        <Chip label={row.keywordEndListingCount} color="error" variant="outlined" size="small" />
+                      ) : (
+                        <Typography variant="body2" color="text.disabled">—</Typography>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {row.countryBreakdown?.length > 0 ? (
                         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
@@ -282,7 +299,7 @@ export default function EndListingStatsPage() {
                               size="small"
                               variant="outlined"
                               label={`${countryLabel(countryRow.country)}: ${countryRow.total}`}
-                              title={`Duplicate SKU: ${countryRow.duplicateSkuCount || 0}, Expiry Listings: ${countryRow.expiryListingCount || 0}, Amazon Stock Check: ${countryRow.amazonStockCheckCount || 0}, SKU Listing Manager: ${countryRow.skuListingManagerCount || 0}`}
+                              title={`Duplicate SKU: ${countryRow.duplicateSkuCount || 0}, Expiry Listings: ${countryRow.expiryListingCount || 0}, Amazon Stock Check: ${countryRow.amazonStockCheckCount || 0}, SKU Listing Manager: ${countryRow.skuListingManagerCount || 0}, Keyword End Listing: ${countryRow.keywordEndListingCount || 0}`}
                               sx={{ fontWeight: 600 }}
                             />
                           ))}
@@ -301,7 +318,7 @@ export default function EndListingStatsPage() {
                 {rows.length > 1 && (
                   <>
                     <TableRow>
-                      <TableCell colSpan={8}><Divider /></TableCell>
+                      <TableCell colSpan={9}><Divider /></TableCell>
                     </TableRow>
                     <TableRow sx={{ '& td': { fontWeight: 700, bgcolor: 'action.hover' } }}>
                       <TableCell colSpan={2}>TOTAL</TableCell>
@@ -309,6 +326,7 @@ export default function EndListingStatsPage() {
                       <TableCell align="center">{totalExpiry}</TableCell>
                       <TableCell align="center">{totalAmazon}</TableCell>
                       <TableCell align="center">{totalSkuManager}</TableCell>
+                      <TableCell align="center">{totalKeywordEnd}</TableCell>
                       <TableCell />
                       <TableCell align="center">{grandTotal}</TableCell>
                     </TableRow>
