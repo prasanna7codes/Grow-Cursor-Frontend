@@ -15,6 +15,7 @@ const SOURCE_META = {
   expiry_listing:     { label: 'Expiry Listing',     color: 'warning' },
   amazon_stock_check: { label: 'Amazon Stock Check',  color: 'info' },
   sku_listing_manager: { label: 'SKU Listing Manager', color: 'secondary' },
+  keyword_end_listing: { label: 'Keyword End Listing', color: 'error' },
 };
 
 const countryLabel = (country) => {
