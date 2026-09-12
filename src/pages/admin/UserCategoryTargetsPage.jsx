@@ -5,6 +5,11 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControl,
   IconButton,
   InputLabel,
@@ -54,12 +59,18 @@ export default function UserCategoryTargetsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // { type: 'save' } confirms the current form; { type: 'delete', target } confirms a row removal
+  const [confirmAction, setConfirmAction] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [targetFilters, setTargetFilters] = useState({
     user: null,
+    userStatus: 'all',
     search: '',
   });
+
+  const deletedRefSx = { color: alpha(BRAND_DARK, 0.45), fontStyle: 'italic' };
 
   const inputSx = {
     '& label.Mui-focused': { color: `${BRAND_YELLOW_DARK} !important` },
@@ -99,8 +110,13 @@ export default function UserCategoryTargetsPage() {
   };
 
   const fetchTargets = async () => {
-    const { data } = await api.get('/user-category-targets');
-    setTargets(data || []);
+    setRefreshing(true);
+    try {
+      const { data } = await api.get('/user-category-targets');
+      setTargets(data || []);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const getUserLabel = (user) => {
@@ -114,10 +130,20 @@ export default function UserCategoryTargetsPage() {
   const getCategoryLabel = (category) => category?.name || '';
   const getRangeLabel = (range) => range?.name || '';
 
+  // user/seller/category are required on the target, so a null populated ref means the
+  // referenced document was deleted after the target was saved.
+  const isDeletedUserTarget = (target) => !target.user;
+
+  const deletedUserCount = useMemo(() => targets.filter(isDeletedUserTarget).length, [targets]);
+
   const selectedUserTargets = useMemo(() => {
     const normalizedSearch = targetFilters.search.trim().toLowerCase();
 
     return targets.filter((target) => {
+      const deletedUser = isDeletedUserTarget(target);
+      if (targetFilters.userStatus === 'active' && deletedUser) return false;
+      if (targetFilters.userStatus === 'deleted' && !deletedUser) return false;
+
       const matchesUser = !targetFilters.user || target.user?._id === targetFilters.user._id;
       if (!matchesUser) return false;
 
@@ -156,6 +182,18 @@ export default function UserCategoryTargetsPage() {
     };
   }, [selectedUserTargets]);
 
+  const confirmSubject = confirmAction?.type === 'delete' ? confirmAction.target : confirmAction?.type === 'save' ? form : null;
+  const confirmRows = confirmSubject
+    ? [
+      ['User', confirmSubject.user ? getUserLabel(confirmSubject.user) : 'Deleted user'],
+      ['Seller', confirmSubject.seller ? getSellerLabel(confirmSubject.seller) : 'Deleted seller'],
+      ['Marketplace', confirmSubject.marketplace || '-'],
+      ['Category', confirmSubject.category ? getCategoryLabel(confirmSubject.category) : 'Deleted category'],
+      ['Range', getRangeLabel(confirmSubject.range) || 'All ranges'],
+      ['Daily desired quantity', Number(confirmSubject.dailyDesiredQuantity || 0).toLocaleString()],
+    ]
+    : [];
+
   const filteredRanges = form.category
     ? ranges.filter((range) => String(range.categoryId?._id || range.categoryId) === form.category._id)
     : [];
@@ -180,7 +218,7 @@ export default function UserCategoryTargetsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     setError('');
     setMessage('');
 
@@ -194,6 +232,11 @@ export default function UserCategoryTargetsPage() {
       return setError('Daily desired quantity must be 0 or higher.');
     }
 
+    setConfirmAction({ type: 'save' });
+  };
+
+  const confirmSave = async () => {
+    setConfirmAction(null);
     setSaving(true);
     try {
       await api.post('/user-category-targets', {
@@ -202,7 +245,7 @@ export default function UserCategoryTargetsPage() {
         marketplace: form.marketplace,
         categoryId: form.category._id,
         rangeId: form.range?._id || null,
-        dailyDesiredQuantity: quantity,
+        dailyDesiredQuantity: Number(form.dailyDesiredQuantity),
       });
       setMessage(editingId ? 'Desired quantity updated.' : 'Desired quantity saved.');
       resetForm();
@@ -214,10 +257,17 @@ export default function UserCategoryTargetsPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    setDeleteId(id);
+  const handleDelete = (target) => {
     setError('');
     setMessage('');
+    setConfirmAction({ type: 'delete', target });
+  };
+
+  const confirmDelete = async () => {
+    const id = confirmAction?.target?._id;
+    setConfirmAction(null);
+    if (!id) return;
+    setDeleteId(id);
     try {
       await api.delete(`/user-category-targets/${id}`);
       setTargets((prev) => prev.filter((target) => target._id !== id));
@@ -367,6 +417,9 @@ export default function UserCategoryTargetsPage() {
                     ({selectedUserTargets.length} of {targets.length} record{targets.length === 1 ? '' : 's'})
                   </Typography>
                 )}
+                {refreshing && (
+                  <CircularProgress size={14} sx={{ ml: 1, color: BRAND_YELLOW_DARK, verticalAlign: 'middle' }} />
+                )}
               </Typography>
               {!loading && targetFilters.user && (
                 <Typography variant="caption" sx={{ color: alpha(BRAND_DARK, 0.55), fontWeight: 600 }}>
@@ -374,7 +427,23 @@ export default function UserCategoryTargetsPage() {
                 </Typography>
               )}
             </Box>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ minWidth: { md: 680 } }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ minWidth: { md: 860 } }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 180 } }}>
+                <InputLabel sx={{ '&.Mui-focused': { color: BRAND_YELLOW_DARK } }}>Users</InputLabel>
+                <Select
+                  value={targetFilters.userStatus}
+                  label="Users"
+                  onChange={(event) => setTargetFilters((prev) => ({ ...prev, userStatus: event.target.value }))}
+                  sx={{
+                    borderRadius: 1.5,
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: `${BRAND_YELLOW_DARK} !important` },
+                  }}
+                >
+                  <MenuItem value="all">All users</MenuItem>
+                  <MenuItem value="active">Active users ({targets.length - deletedUserCount})</MenuItem>
+                  <MenuItem value="deleted">Deleted users ({deletedUserCount})</MenuItem>
+                </Select>
+              </FormControl>
               <Autocomplete
                 options={users}
                 getOptionLabel={getUserLabel}
@@ -391,10 +460,10 @@ export default function UserCategoryTargetsPage() {
                 onChange={(event) => setTargetFilters((prev) => ({ ...prev, search: event.target.value }))}
                 sx={{ minWidth: { xs: '100%', sm: 260 }, flex: 1, ...inputSx }}
               />
-              {(targetFilters.user || targetFilters.search) && (
+              {(targetFilters.user || targetFilters.search || targetFilters.userStatus !== 'all') && (
                 <Button
                   variant="outlined"
-                  onClick={() => setTargetFilters({ user: null, search: '' })}
+                  onClick={() => setTargetFilters({ user: null, userStatus: 'all', search: '' })}
                   sx={{ borderRadius: 1.5, color: BRAND_DARK, borderColor: alpha(BRAND_DARK, 0.3), whiteSpace: 'nowrap' }}
                 >
                   Clear
@@ -440,11 +509,17 @@ export default function UserCategoryTargetsPage() {
                   const isEditing = editingId === target._id;
                   return (
                     <TableRow key={target._id} sx={{ ...tableBodyRowSx, ...(isEditing ? { '& td': { backgroundColor: `${alpha(BRAND_YELLOW, 0.14)} !important` } } : {}) }}>
-                      <TableCell sx={tableBodyCellSx}>{getUserLabel(target.user)}</TableCell>
+                      <TableCell sx={tableBodyCellSx}>
+                        {target.user ? getUserLabel(target.user) : <Box component="span" sx={deletedRefSx}>Deleted user</Box>}
+                      </TableCell>
                       <TableCell sx={tableBodyCellSx}>{target.user?.department || '-'}</TableCell>
-                      <TableCell sx={tableBodyCellSx}>{getSellerLabel(target.seller)}</TableCell>
+                      <TableCell sx={tableBodyCellSx}>
+                        {target.seller ? getSellerLabel(target.seller) : <Box component="span" sx={deletedRefSx}>Deleted seller</Box>}
+                      </TableCell>
                       <TableCell sx={tableBodyCellSx}>{target.marketplace || '-'}</TableCell>
-                      <TableCell sx={tableBodyCellSx}>{target.category?.name || '-'}</TableCell>
+                      <TableCell sx={tableBodyCellSx}>
+                        {target.category ? getCategoryLabel(target.category) : <Box component="span" sx={deletedRefSx}>Deleted category</Box>}
+                      </TableCell>
                       <TableCell sx={tableBodyCellSx}>{target.range?.name || 'All ranges'}</TableCell>
                       <TableCell sx={{ ...tableBodyCellSx, fontWeight: 700 }} align="right">
                         {Number(target.dailyDesiredQuantity || 0).toLocaleString()}
@@ -460,7 +535,7 @@ export default function UserCategoryTargetsPage() {
                           </Tooltip>
                           <Tooltip title="Delete">
                             <span>
-                              <IconButton size="small" onClick={() => handleDelete(target._id)} disabled={deleteId === target._id} sx={{ color: '#c0392b' }}>
+                              <IconButton size="small" onClick={() => handleDelete(target)} disabled={deleteId === target._id} sx={{ color: '#c0392b' }}>
                                 {deleteId === target._id ? <CircularProgress size={16} /> : <DeleteIcon fontSize="small" />}
                               </IconButton>
                             </span>
@@ -475,6 +550,45 @@ export default function UserCategoryTargetsPage() {
           </TableContainer>
         )}
       </Paper>
+
+      <Dialog open={Boolean(confirmAction)} onClose={() => setConfirmAction(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, color: BRAND_DARK }}>
+          {confirmAction?.type === 'delete'
+            ? 'Delete desired quantity?'
+            : editingId ? 'Update desired quantity?' : 'Save desired quantity?'}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ color: alpha(BRAND_DARK, 0.7) }}>
+            {confirmAction?.type === 'delete'
+              ? 'This removes the daily target below. It cannot be undone.'
+              : editingId
+                ? 'The daily target below will be updated.'
+                : 'A new daily target will be saved. If one already exists for the same user, seller, marketplace, category and range, its quantity will be replaced.'}
+          </DialogContentText>
+          <Stack spacing={0.75} sx={{ mt: 2 }}>
+            {confirmRows.map(([label, value]) => (
+              <Stack key={label} direction="row" justifyContent="space-between" spacing={2}>
+                <Typography variant="body2" sx={{ color: alpha(BRAND_DARK, 0.55), flexShrink: 0 }}>{label}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ color: BRAND_DARK, textAlign: 'right' }}>{value}</Typography>
+              </Stack>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmAction(null)} sx={{ color: BRAND_DARK }}>
+            Cancel
+          </Button>
+          {confirmAction?.type === 'delete' ? (
+            <Button variant="contained" color="error" startIcon={<DeleteIcon />} onClick={confirmDelete} sx={{ borderRadius: 1.5 }}>
+              Delete
+            </Button>
+          ) : (
+            <Button variant="contained" startIcon={<AddTaskIcon />} onClick={confirmSave} sx={yellowFilledButtonSx}>
+              {editingId ? 'Update' : 'Save'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
