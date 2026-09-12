@@ -441,9 +441,15 @@ export default function UserListingPerformancePage() {
                 <Typography variant="caption" sx={{ color: alpha(BRAND_DARK, 0.55), fontWeight: 700, textTransform: 'uppercase' }}>
                   {metric.label}
                 </Typography>
-                <Typography variant="h4" fontWeight={800} sx={{ color: metric.tone === 'error' ? '#b3261e' : metric.tone === 'warning' ? '#a05a00' : BRAND_DARK, mt: 0.5 }}>
-                  {typeof metric.value === 'number' ? metric.value.toLocaleString() : metric.value}
-                </Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', height: 42, mt: 0.5 }}>
+                    <CircularProgress size={22} sx={{ color: BRAND_YELLOW_DARK }} />
+                  </Box>
+                ) : (
+                  <Typography variant="h4" fontWeight={800} sx={{ color: metric.tone === 'error' ? '#b3261e' : metric.tone === 'warning' ? '#a05a00' : BRAND_DARK, mt: 0.5 }}>
+                    {typeof metric.value === 'number' ? metric.value.toLocaleString() : metric.value}
+                  </Typography>
+                )}
                 <Typography variant="body2" sx={{ color: alpha(BRAND_DARK, 0.5), mt: 0.5 }}>
                   {metric.helper}
                 </Typography>
